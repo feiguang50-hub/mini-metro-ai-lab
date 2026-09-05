@@ -28,9 +28,6 @@ class PressureRescueMixin:
 
     WARNING_WAIT_MS = 25_000
     CRITICAL_WAIT_MS = 30_000
-    # The first V2.1 experiment inserted a 900 ms cooldown without evidence and
-    # badly delayed fleet deployment. Keep rescue unthrottled unless a future
-    # experiment independently establishes a better cadence.
     RESCUE_ACTION_COOLDOWN_MS = 0
 
     def __init__(self) -> None:
@@ -84,7 +81,6 @@ class PressureRescueMixin:
         stations: list[dict[str, Any]],
         ages: dict[str, int],
     ) -> tuple[int, int, int] | None:
-        """Return ``(path_index, oldest_wait_ms, waiting_count)``."""
         station_by_id = {station["id"]: station for station in stations}
         best: tuple[int, int, int] | None = None
         best_key: tuple[int, int, int] | None = None
@@ -128,8 +124,6 @@ class PressureRescueMixin:
         locomotives = int(fleet.get("locomotives_available", 0))
         carriages = int(fleet.get("carriages_available", 0))
 
-        # Close to the engine's 40-second failure clock, frequency wins over
-        # capacity: another locomotive can revisit the endangered stop sooner.
         if locomotives > 0 and oldest_ms >= self.CRITICAL_WAIT_MS:
             self._last_rescue_ms = now
             return Decision(
@@ -138,7 +132,6 @@ class PressureRescueMixin:
                 f"第 {path_index + 1} 条线路最久候车约 {oldest_ms / 1000:.1f}s，优先提高到站频率。",
             )
 
-        # Away from the deadline, preserve V1's capacity-first ordering.
         if carriages > 0 and metro_counts[path_index] > 0 and (
             waiting_count >= 6 or oldest_ms >= self.WARNING_WAIT_MS
         ):
@@ -165,7 +158,6 @@ class PressureRescueMixin:
         decision = super().act(observation)
         if decision.action.get("type") != "noop":
             return decision
-
         rescue = self._rescue(observation, ages)
         if rescue is not None:
             return rescue
@@ -173,12 +165,81 @@ class PressureRescueMixin:
 
 
 class GreedyPressureV11Planner(PressureRescueMixin, GreedyPlanner):
-    """Greedy V1 topology plus the independently tested waiting-age rescue."""
+    """Greedy V1 topology plus a bounded one-shot pressure rescue episode."""
 
     name = "Greedy V1.1 Pressure Rescue"
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._rescue_episode_latched = False
+
+    def reset(self, observation: dict[str, Any]) -> None:
+        super().reset(observation)
+        self._rescue_episode_latched = False
+
+    def _rescue(
+        self,
+        observation: dict[str, Any],
+        ages: dict[str, int],
+    ) -> Decision | None:
+        state = self._s(observation)
+        paths = list(state.get("paths", ()))
+        stations = list(state.get("stations", ()))
+        metros = list(state.get("metros", ()))
+        fleet = state.get("fleet", {})
+        now = int(state.get("time_ms", 0))
+        if not paths:
+            self._rescue_episode_latched = False
+            return None
+
+        target = self._rescue_target(paths, stations, ages)
+        if target is None:
+            self._rescue_episode_latched = False
+            return None
+        path_index, oldest_ms, waiting_count = target
+
+        pressure_active = (
+            oldest_ms >= self.WARNING_WAIT_MS or waiting_count >= 4
+        )
+        if not pressure_active:
+            self._rescue_episode_latched = False
+            return None
+        if self._rescue_episode_latched:
+            return None
+
+        metro_counts = self._path_metro_counts(paths, metros)
+        locomotives = int(fleet.get("locomotives_available", 0))
+        carriages = int(fleet.get("carriages_available", 0))
+        decision: Decision | None = None
+
+        # A lone old rider is a warning, not a reason to spend the whole fleet.
+        # Age alone becomes actionable only at the critical 30-second band.
+        if locomotives > 0 and oldest_ms >= self.CRITICAL_WAIT_MS:
+            decision = Decision(
+                {"type": "assign_locomotive", "path_index": path_index},
+                "临界救火：单次增派机车",
+                f"第 {path_index + 1} 条线路最久候车约 {oldest_ms / 1000:.1f}s，本轮压力只追加一次运力。",
+            )
+        elif carriages > 0 and metro_counts[path_index] > 0 and waiting_count >= 6:
+            decision = Decision(
+                {"type": "attach_carriage", "path_index": path_index},
+                "队列救火：单次增加车厢",
+                f"第 {path_index + 1} 条线路候车 {waiting_count} 人，本轮压力只追加一次运力。",
+            )
+        elif locomotives > 0 and waiting_count >= 4:
+            decision = Decision(
+                {"type": "assign_locomotive", "path_index": path_index},
+                "队列救火：单次增派机车",
+                f"第 {path_index + 1} 条线路候车 {waiting_count} 人，本轮压力只追加一次运力。",
+            )
+
+        if decision is not None:
+            self._rescue_episode_latched = True
+            self._last_rescue_ms = now
+        return decision
+
 
 class BalancedGreedyV21Planner(PressureRescueMixin, BalancedGreedyPlanner):
-    """Balanced V2 topology plus the same waiting-age rescue controller."""
+    """Balanced V2 topology plus the original V2.1 rescue controller."""
 
     name = "Balanced Greedy V2.1 Rescue"
