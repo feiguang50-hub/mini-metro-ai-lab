@@ -31,7 +31,7 @@ jobs:
         run: ./scripts/bootstrap.sh
 
       - name: Compile
-        run: .venv/bin/python -m compileall -q metro_lab tests
+        run: .venv/bin/python -m compileall -q metro_lab tests scripts/probe_rescue.py
 
       - name: Unit + engine smoke tests
         run: .venv/bin/python -m unittest discover -s tests -v
@@ -57,6 +57,17 @@ jobs:
             --seeds 1907374266 805162878 657531977 978077348 1255654432 \
             --minutes 15 \
             --no-save
+
+      # These are already-public development seeds selected only because they
+      # diverged (+6 / -5) in the first V1.1 run. This is mechanism diagnosis,
+      # not a qualification gate and does not expose any frozen holdout set.
+      - name: Pressure rescue diagnostic probe
+        if: github.event_name == 'pull_request'
+        run: |
+          .venv/bin/python scripts/probe_rescue.py \
+            --scenario stress-v1 \
+            --seeds 805162878 657531977 \
+            --minutes 15
 
       - name: HTTP live-view smoke test
         shell: bash
