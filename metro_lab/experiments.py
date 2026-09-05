@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .config import ENGINE_COMMIT, ROOT
+from .scenarios import DEFAULT_SCENARIO_ID, get_scenario_spec
 from .simulation import SIMULATION_PROTOCOL_VERSION
 
 SCHEMA_VERSION = 1
@@ -57,14 +58,12 @@ class ReplayWriter:
     def start(self) -> "ReplayWriter":
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = gzip.open(self.path, "wt", encoding="utf-8")
-        self._write(
-            {
-                "type": "header",
-                "schema_version": SCHEMA_VERSION,
-                "engine_commit": ENGINE_COMMIT,
-                **_artifact_jsonable(self.metadata),
-            }
-        )
+        self._write({
+            "type": "header",
+            "schema_version": SCHEMA_VERSION,
+            "engine_commit": ENGINE_COMMIT,
+            **_artifact_jsonable(self.metadata),
+        })
         return self
 
     def _write(self, payload: dict[str, Any]) -> None:
@@ -73,25 +72,15 @@ class ReplayWriter:
         self._handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         self._handle.write("\n")
 
-    def write_frame(
-        self,
-        *,
-        time_ms: int,
-        game: dict[str, Any],
-        decision: dict[str, Any],
-        action_ok: bool,
-        kind: str,
-    ) -> None:
-        self._write(
-            {
-                "type": "frame",
-                "time_ms": int(time_ms),
-                "kind": str(kind),
-                "action_ok": bool(action_ok),
-                "decision": _artifact_jsonable(decision),
-                "game": _artifact_jsonable(game),
-            }
-        )
+    def write_frame(self, *, time_ms: int, game: dict[str, Any], decision: dict[str, Any], action_ok: bool, kind: str) -> None:
+        self._write({
+            "type": "frame",
+            "time_ms": int(time_ms),
+            "kind": str(kind),
+            "action_ok": bool(action_ok),
+            "decision": _artifact_jsonable(decision),
+            "game": _artifact_jsonable(game),
+        })
         self.frames += 1
 
     def close(self) -> None:
@@ -123,7 +112,9 @@ class ExperimentArtifacts:
         minutes: float,
         dt_ms: int,
         replay_sample_ms: int,
+        scenario: str = DEFAULT_SCENARIO_ID,
     ) -> "ExperimentArtifacts":
+        scenario_spec = get_scenario_spec(scenario)
         output_root = Path(output_root)
         output_root.mkdir(parents=True, exist_ok=True)
         algorithm_ids = [str(item) for item in algorithms]
@@ -132,7 +123,7 @@ class ExperimentArtifacts:
         label = "-vs-".join(_safe_slug(item) for item in algorithm_ids[:3]) or "arena"
         if len(algorithm_ids) > 3:
             label += f"-plus{len(algorithm_ids) - 3}"
-        run_id = f"{timestamp}-{label}"
+        run_id = f"{timestamp}-{_safe_slug(scenario)}-{label}"
         run_dir = _unique_run_dir(output_root, run_id)
         run_id = run_dir.name
         replay_dir = run_dir / "replays"
@@ -140,6 +131,7 @@ class ExperimentArtifacts:
         config = {
             "schema_version": SCHEMA_VERSION,
             "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "scenario": scenario_spec.public(),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "engine_commit": ENGINE_COMMIT,
             "algorithms": algorithm_ids,
@@ -149,8 +141,7 @@ class ExperimentArtifacts:
             "replay_sample_ms": int(replay_sample_ms),
         }
         (run_dir / "config.json").write_text(
-            json.dumps(config, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+            json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         return cls(run_id=run_id, run_dir=run_dir, replay_dir=replay_dir, config=config)
 
@@ -163,14 +154,14 @@ class ExperimentArtifacts:
         payload = {
             "schema_version": SCHEMA_VERSION,
             "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "scenario": self.config["scenario"],
             "run_id": self.run_id,
             "config": self.config,
             "results": result_rows,
             "summaries": summary_rows,
         }
         (self.run_dir / "results.json").write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
         self._write_csv(result_rows)
         self._write_summary(summary_rows)
@@ -187,11 +178,13 @@ class ExperimentArtifacts:
             writer.writerows(rows)
 
     def _write_summary(self, rows: list[dict[str, Any]]) -> None:
+        scenario = self.config["scenario"]
         lines = [
             f"# Arena Experiment · {self.run_id}",
             "",
             f"- Engine: `{ENGINE_COMMIT}`",
             f"- Simulation protocol: `v{SIMULATION_PROTOCOL_VERSION}`",
+            f"- Scenario: `{scenario['id']}` · {scenario['name']}",
             f"- Algorithms: {', '.join(f'`{item}`' for item in self.config['algorithms'])}",
             f"- Seeds: {', '.join(str(item) for item in self.config['seeds'])}",
             f"- Budget: {self.config['minutes']} min / seed",
@@ -199,43 +192,46 @@ class ExperimentArtifacts:
             "",
             "## Ranking",
             "",
-            "| Algorithm | Deliveries | D/min | Avg waiting | Peak station | Fleet load | Game over | Invalid rate |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Algorithm | Deliveries | D/min | Avg waiting | Peak risk | Peak wait | High-risk s | Game over | Invalid rate |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for row in rows:
             lines.append(
                 "| {algorithm} | {mean_deliveries} | {mean_deliveries_per_minute} | "
-                "{mean_waiting_passengers} | {mean_peak_station_queue} | {mean_fleet_load_pct:.1f}% | "
+                "{mean_waiting_passengers} | {mean_peak_risk_pct:.1f}% | "
+                "{mean_peak_wait_seconds:.1f}s | {mean_high_risk_seconds:.1f} | "
                 "{game_over_rate:.1%} | {invalid_action_rate:.1%} |".format(
                     algorithm=row.get("algorithm", "?"),
                     mean_deliveries=row.get("mean_deliveries", 0),
                     mean_deliveries_per_minute=row.get("mean_deliveries_per_minute", 0),
                     mean_waiting_passengers=row.get("mean_waiting_passengers", 0),
-                    mean_peak_station_queue=row.get("mean_peak_station_queue", 0),
-                    mean_fleet_load_pct=float(row.get("mean_fleet_load_pct", 0)),
+                    mean_peak_risk_pct=float(row.get("mean_peak_risk_pct", 0)),
+                    mean_peak_wait_seconds=float(row.get("mean_peak_wait_seconds", 0)),
+                    mean_high_risk_seconds=float(row.get("mean_high_risk_seconds", 0)),
                     game_over_rate=float(row.get("game_over_rate", 0)),
                     invalid_action_rate=float(row.get("invalid_action_rate", 0)),
                 )
             )
-        lines.extend(
-            [
-                "",
-                "## Metric notes",
-                "",
-                "- `Avg waiting`: time-weighted passengers waiting at stations.",
-                "- `Peak station`: worst single-station queue observed in an episode, averaged across seeds.",
-                "- `Fleet load`: time-weighted passenger occupancy while assigned capacity exists.",
-                "- A rejected planner action still consumes the round as a noop under Simulation Protocol V2.",
-                "",
-                "## Files",
-                "",
-                "- `config.json`: exact experiment inputs and simulation protocol",
-                "- `results.json`: machine-readable episode results and summaries",
-                "- `episodes.csv`: one row per algorithm × seed episode",
-                "- `replays/*.jsonl.gz`: sampled game states plus every non-noop decision",
-                "",
-                "> Runtime output lives under `output/` and is intentionally ignored by Git. Promote only representative experiments into the repository history.",
-                "",
-            ]
-        )
+        lines.extend([
+            "",
+            "## Metric notes",
+            "",
+            "- `Avg waiting`: time-weighted passengers currently waiting at stations.",
+            "- `Peak risk`: progress toward the engine's actual game-over condition, based on the most endangered N passengers where N is the overdue-passenger threshold.",
+            "- `Peak wait`: maximum station-passenger wait clock observed in the episode.",
+            "- `High-risk s`: simulated seconds spent at or above 75% failure risk.",
+            "- The pinned engine ends a game when enough passengers, potentially on different stations, have individually waited past the maximum wait time. Peak station queue is recorded in JSON/CSV but is not itself the failure rule.",
+            "- A rejected planner action still consumes the round as a noop under Simulation Protocol V2.",
+            "- Results from different scenario IDs are not directly interchangeable.",
+            "",
+            "## Files",
+            "",
+            "- `config.json`: exact experiment inputs, scenario and simulation protocol",
+            "- `results.json`: machine-readable episode results and summaries",
+            "- `episodes.csv`: one row per algorithm × seed episode",
+            "- `replays/*.jsonl.gz`: sampled game states plus every non-noop decision",
+            "",
+            "> Runtime output lives under `output/` and is intentionally ignored by Git. Promote only representative experiments into the repository history.",
+            "",
+        ])
         (self.run_dir / "summary.md").write_text("\n".join(lines), encoding="utf-8")

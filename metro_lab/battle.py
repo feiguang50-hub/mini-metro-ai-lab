@@ -12,6 +12,13 @@ from .config import ENGINE_COMMIT, ROOT, TICK_MS
 from .engine import _jsonable, _load_engine
 from .experiments import ReplayWriter
 from .planner import Decision
+from .scenarios import (
+    DEFAULT_SCENARIO_ID,
+    advance_scenario,
+    configure_scenario,
+    get_scenario_spec,
+    scenario_ids,
+)
 from .simulation import SIMULATION_PROTOCOL_VERSION, advance_fixed_dt
 
 DEFAULT_BATTLE_ROOT = ROOT / "output" / "battles"
@@ -36,6 +43,7 @@ class BattleResult:
     right: BattleSideResult
     winner: str
     delivery_margin: int
+    scenario: str = DEFAULT_SCENARIO_ID
 
 
 def _side_result(algorithm: str, seed: int, observation: dict[str, Any], done: bool, invalid_actions: int) -> BattleSideResult:
@@ -72,6 +80,7 @@ def run_battle(
     *,
     minutes: float = 15.0,
     dt_ms: int = TICK_MS,
+    scenario: str = DEFAULT_SCENARIO_ID,
     left_replay: Path | None = None,
     right_replay: Path | None = None,
     replay_sample_ms: int = 1_000,
@@ -80,6 +89,7 @@ def run_battle(
     for algorithm in (left_algorithm, right_algorithm):
         if algorithm not in available:
             raise ValueError(f"unknown or unavailable algorithm: {algorithm}")
+    get_scenario_spec(scenario)
     if minutes <= 0:
         raise ValueError("minutes must be positive")
     if dt_ms <= 0:
@@ -92,6 +102,10 @@ def run_battle(
     right_env = MiniMetroEnv(dt_ms=dt_ms, reward_mode="deliveries")
     left_obs = left_env.reset(seed=int(seed))
     right_obs = right_env.reset(seed=int(seed))
+    if configure_scenario(left_env, scenario):
+        left_obs = left_env.observe()
+    if configure_scenario(right_env, scenario):
+        right_obs = right_env.observe()
     left_planner = create_planner(left_algorithm)
     right_planner = create_planner(right_algorithm)
     left_planner.reset(left_obs)
@@ -110,6 +124,7 @@ def run_battle(
         "opponent": right_algorithm,
         "algorithm": left_algorithm,
         "seed": int(seed),
+        "scenario": scenario,
         "dt_ms": int(dt_ms),
         "minutes": float(minutes),
         "sample_every_ms": int(replay_sample_ms),
@@ -121,13 +136,14 @@ def run_battle(
         "opponent": left_algorithm,
         "algorithm": right_algorithm,
         "seed": int(seed),
+        "scenario": scenario,
         "dt_ms": int(dt_ms),
         "minutes": float(minutes),
         "sample_every_ms": int(replay_sample_ms),
         "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
     }).start() if right_replay is not None else None
 
-    start_decision = Decision({"type": "noop"}, "Battle start", f"Seed {int(seed)}")
+    start_decision = Decision({"type": "noop"}, "Battle start", f"Seed {int(seed)} · {scenario}")
     _record(left_writer, left_obs, start_decision, True, "start")
     _record(right_writer, right_obs, start_decision, True, "start")
 
@@ -141,11 +157,17 @@ def run_battle(
             if not left_done:
                 outcome = advance_fixed_dt(left_env, left_obs, left_decision.action, dt_ms=dt_ms)
                 left_obs, left_done, left_ok = outcome.observation, outcome.done, outcome.action_ok
+                if advance_scenario(left_env, scenario):
+                    left_obs = left_env.observe()
+                    left_done = bool(left_done or left_obs["structured"].get("is_game_over"))
                 if left_decision.action.get("type") != "noop" and not left_ok:
                     left_invalid += 1
             if not right_done:
                 outcome = advance_fixed_dt(right_env, right_obs, right_decision.action, dt_ms=dt_ms)
                 right_obs, right_done, right_ok = outcome.observation, outcome.done, outcome.action_ok
+                if advance_scenario(right_env, scenario):
+                    right_obs = right_env.observe()
+                    right_done = bool(right_done or right_obs["structured"].get("is_game_over"))
                 if right_decision.action.get("type") != "noop" and not right_ok:
                     right_invalid += 1
 
@@ -175,14 +197,14 @@ def run_battle(
     right = _side_result(right_algorithm, seed, right_obs, right_done, right_invalid)
     margin = left.deliveries - right.deliveries
     winner = "left" if margin > 0 else "right" if margin < 0 else "tie"
-    return BattleResult(seed=int(seed), left=left, right=right, winner=winner, delivery_margin=abs(margin))
+    return BattleResult(seed=int(seed), left=left, right=right, winner=winner, delivery_margin=abs(margin), scenario=scenario)
 
 
 def save_battle(result: BattleResult, *, output_root: Path, minutes: float, dt_ms: int) -> Path:
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = output_root / f"{timestamp}-{result.left.algorithm}-vs-{result.right.algorithm}-seed-{result.seed}"
+    run_dir = output_root / f"{timestamp}-{result.scenario}-{result.left.algorithm}-vs-{result.right.algorithm}-seed-{result.seed}"
     suffix = 2
     base = run_dir
     while run_dir.exists():
@@ -192,6 +214,7 @@ def save_battle(result: BattleResult, *, output_root: Path, minutes: float, dt_m
     payload = {
         "schema_version": 1,
         "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+        "scenario": get_scenario_spec(result.scenario).public(),
         "engine_commit": ENGINE_COMMIT,
         "minutes": float(minutes),
         "dt_ms": int(dt_ms),
@@ -207,6 +230,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("left", nargs="?", default=DEFAULT_ALGORITHM_ID, choices=available)
     parser.add_argument("right", nargs="?", default=DEFAULT_ALGORITHM_ID, choices=available)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--scenario", default=DEFAULT_SCENARIO_ID, choices=scenario_ids())
     parser.add_argument("--minutes", type=float, default=15.0)
     parser.add_argument("--dt-ms", type=int, default=TICK_MS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_BATTLE_ROOT)
@@ -223,7 +247,7 @@ def main() -> None:
     left_replay = right_replay = None
     if args.replays and not args.no_save:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        replay_dir = Path(args.output_dir) / f"{timestamp}-replays"
+        replay_dir = Path(args.output_dir) / f"{timestamp}-{args.scenario}-replays"
         left_replay = replay_dir / f"left-{args.left}-seed-{args.seed}.jsonl.gz"
         right_replay = replay_dir / f"right-{args.right}-seed-{args.seed}.jsonl.gz"
 
@@ -233,6 +257,7 @@ def main() -> None:
         args.seed,
         minutes=args.minutes,
         dt_ms=args.dt_ms,
+        scenario=args.scenario,
         left_replay=left_replay,
         right_replay=right_replay,
         replay_sample_ms=args.replay_sample_ms,
@@ -243,12 +268,14 @@ def main() -> None:
         print(json.dumps({
             "engine_commit": ENGINE_COMMIT,
             "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "scenario": get_scenario_spec(result.scenario).public(),
             "run_dir": str(run_dir) if run_dir else None,
             "result": asdict(result),
         }, ensure_ascii=False, indent=2))
         return
 
-    print("\n🏁 Mini Metro AI Battle · Protocol V2")
+    spec = get_scenario_spec(result.scenario)
+    print(f"\n🏁 Mini Metro AI Battle · Protocol V2 · {spec.name}")
     print("=" * 64)
     print(f"Seed {result.seed} · {result.left.algorithm} vs {result.right.algorithm}")
     print(f"左侧：{result.left.deliveries} deliveries · {'Game Over' if result.left.game_over else 'alive'}")

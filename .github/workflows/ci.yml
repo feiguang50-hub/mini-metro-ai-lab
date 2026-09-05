@@ -36,10 +36,21 @@ jobs:
       - name: Unit + engine smoke tests
         run: .venv/bin/python -m unittest discover -s tests -v
 
-      - name: Candidate benchmark
+      - name: Classic candidate benchmark
         if: github.event_name == 'pull_request'
         run: |
           .venv/bin/mini-metro-arena \
+            --scenario classic-v1 \
+            --algorithms greedy-v1 balanced-greedy-v2 \
+            --seeds 42 314 2026 4096 65537 \
+            --minutes 15 \
+            --no-save
+
+      - name: Stress candidate benchmark
+        if: github.event_name == 'pull_request'
+        run: |
+          .venv/bin/mini-metro-arena \
+            --scenario stress-v1 \
             --algorithms greedy-v1 balanced-greedy-v2 \
             --seeds 42 314 2026 4096 65537 \
             --minutes 15 \
@@ -75,6 +86,9 @@ jobs:
 
           state = json.loads(Path('/tmp/state.json').read_text())
           assert state['runtime']['algorithm'] == 'Greedy Planner V1'
+          assert state['runtime']['scenario_id'] == 'stress-v1'
+          assert 0 <= state['runtime']['risk'] <= 100
+          assert state['runtime']['passenger_max_wait_time_ms'] > 0
           assert len(state['game']['stations']) >= 2
           assert 'decision' in state
           print('live-view smoke ok:', state['game']['time_ms'], 'ms')
@@ -96,9 +110,13 @@ jobs:
           assert battle['status'] == 'finished', battle
           assert battle['left']['game']['time_ms'] == battle['right']['game']['time_ms'] == 300
           assert battle['leader'] == 'tie' and battle['delivery_margin'] == 0
+          assert battle['left']['progression']['scenario_id'] == 'stress-v1'
+          assert battle['right']['progression']['scenario_id'] == 'stress-v1'
+          assert 0 <= battle['left']['runtime']['risk'] <= 100
+          assert 0 <= battle['right']['runtime']['risk'] <= 100
           session = battle['session_id']
           post('restart')
           with urlopen(base + '/api/battle/state', timeout=5) as response:
               assert json.load(response)['session_id'] == session + 1
-          print('HTTP battle smoke ok: fixed dt, paired state, budget, self-play, restart')
+          print('HTTP battle smoke ok: fixed dt, stress scenario, wait risk, self-play, restart')
           PY

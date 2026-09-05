@@ -9,21 +9,33 @@ from urllib.request import Request, urlopen
 from metro_lab.config import ENGINE_SRC, WEB_ROOT
 from metro_lab.live_battle import BattleRuntime
 from metro_lab.planner import Decision
+from metro_lab.scenarios import STRESS_SCENARIO_ID
 from metro_lab.server import Handler, LabHTTPServer
 
 
 class FakeEnv:
     def __init__(self, **kwargs):
-        self.mediator = SimpleNamespace(overdue_passenger_threshold=10)
+        del kwargs
+        # Two station passengers at 32 s and 16 s toward a 40 s timeout.
+        # With threshold=2 the real pressure score is (0.8 + 0.4) / 2 = 60%.
+        self.mediator = SimpleNamespace(
+            overdue_passenger_threshold=2,
+            passenger_max_wait_time_ms=40_000,
+            stations=[
+                SimpleNamespace(passengers=[SimpleNamespace(wait_ms=32_000)]),
+                SimpleNamespace(passengers=[SimpleNamespace(wait_ms=16_000)]),
+            ],
+        )
         self.time = 0
         self.end_at = None
 
     def reset(self, seed):
+        del seed
         return self.observation()
 
     def observation(self):
         return {"structured": {"time_ms": self.time, "deliveries": self.time // 100,
-                "stations": [{"passenger_count": 8}], "is_game_over": False}}
+                "stations": [{"passenger_count": 1}, {"passenger_count": 1}], "is_game_over": False}}
 
     def observe(self):
         return self.observation()
@@ -37,9 +49,10 @@ class FakeEnv:
 
 class FakePlanner:
     def reset(self, obs):
-        pass
+        del obs
 
     def act(self, obs):
+        del obs
         return Decision({"type": "create_path"}, "test", "test")
 
 
@@ -53,8 +66,13 @@ class LiveBattleTests(unittest.TestCase):
         self.configure_progression = patch("metro_lab.live_battle.configure_timed_station_progression")
         self.advance_progression = patch("metro_lab.live_battle.advance_timed_station_progression", return_value=False)
         self.progression_status = patch("metro_lab.live_battle.timed_station_status", return_value={
-            "station_count": 1, "station_limit": 1, "station_spawn_interval_ms": 45_000,
-            "next_station_at_ms": None, "next_station_in_ms": None,
+            "scenario_id": STRESS_SCENARIO_ID,
+            "scenario_name": "Stress V1",
+            "station_count": 2,
+            "station_limit": 2,
+            "station_spawn_interval_ms": 45_000,
+            "next_station_at_ms": None,
+            "next_station_in_ms": None,
         })
         self.loader.start()
         self.planner.start()
@@ -80,7 +98,11 @@ class LiveBattleTests(unittest.TestCase):
             self.runtime.advance()
         state = self.runtime.snapshot()
         self.assertEqual((state["round"], state["elapsed_ms"], state["status"]), (3, 300, "finished"))
-        self.assertEqual(state["left"]["runtime"]["risk"], 80)
+        self.assertEqual(state["left"]["runtime"]["risk"], 60)
+        self.assertEqual(state["left"]["runtime"]["at_risk_passengers"], 1)
+        self.assertEqual(state["left"]["runtime"]["overdue_passengers"], 0)
+        self.assertEqual(state["left"]["runtime"]["max_wait_ms"], 32_000)
+        self.assertEqual(state["left"]["progression"]["scenario_id"], STRESS_SCENARIO_ID)
         self.assertEqual(state["left"]["runtime"]["invalid_actions"], 3)
         self.assertEqual(state["leader"], "tie")
         self.runtime.control("restart")
@@ -131,14 +153,18 @@ class LiveBattleTests(unittest.TestCase):
         self.runtime.control("start", CONFIG)
         entered, release, captured = threading.Event(), threading.Event(), threading.Event()
         original = self.runtime._sides[1]["env"].step
+
         def slow_step(*args, **kwargs):
             entered.set()
             release.wait(2)
             return original(*args, **kwargs)
+
         result = []
+
         def read():
             result.append(self.runtime.snapshot())
             captured.set()
+
         with patch.object(self.runtime._sides[1]["env"], "step", side_effect=slow_step):
             advance = threading.Thread(target=self.runtime.advance)
             advance.start()
@@ -166,14 +192,19 @@ class LiveBattleEngineTests(unittest.TestCase):
             self.assertEqual(state["status"], "finished")
             self.assertEqual(state["left"]["game"]["time_ms"], 60000)
             self.assertEqual(state["right"]["game"]["time_ms"], 60000)
+            self.assertEqual(state["left"]["progression"]["scenario_id"], STRESS_SCENARIO_ID)
+            self.assertEqual(state["right"]["progression"]["scenario_id"], STRESS_SCENARIO_ID)
             self.assertEqual(state["left"]["progression"]["station_count"], 4)
             self.assertEqual(state["right"]["progression"]["station_count"], 4)
+            for side in ("left", "right"):
+                self.assertGreaterEqual(state[side]["runtime"]["risk"], 0)
+                self.assertLessEqual(state[side]["runtime"]["risk"], 100)
+                self.assertGreater(state[side]["runtime"]["passenger_max_wait_time_ms"], 0)
             left_stations = [(item["position"], item["shape_type"]) for item in state["left"]["game"]["stations"]]
             right_stations = [(item["position"], item["shape_type"]) for item in state["right"]["game"]["stations"]]
             self.assertEqual(left_stations, right_stations)
             if right == "greedy-v1":
                 def canonical(game):
-                    # Engine UUIDs are identity tokens, independent of the seeded simulation.
                     ids = {item["id"]: f"{kind}-{index}"
                            for kind in ("stations", "paths", "metros", "carriages", "passengers")
                            for index, item in enumerate(game.get(kind, []))}
@@ -214,9 +245,11 @@ class LiveBattleEngineTests(unittest.TestCase):
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         base = f"http://127.0.0.1:{server.server_port}"
+
         def request(path, payload=None):
             data = json.dumps(payload).encode() if payload is not None else None
             return urlopen(Request(base + path, data=data, headers={"Content-Type": "application/json"}), timeout=5)
+
         try:
             before = json.load(request("/api/state"))
             self.assertEqual(json.load(request("/api/battle/state"))["status"], "idle")
@@ -225,6 +258,7 @@ class LiveBattleEngineTests(unittest.TestCase):
             state = json.load(request("/api/battle/state"))
             self.assertEqual(state["round"], 1)
             self.assertEqual(state["left"]["game"]["time_ms"], state["right"]["game"]["time_ms"])
+            self.assertEqual(state["left"]["progression"]["scenario_id"], STRESS_SCENARIO_ID)
             self.assertEqual(json.load(request("/api/state")), before)
             for body in ([], {"command": "start", "value": {}}, {"command": "bad"}):
                 with self.assertRaises(HTTPError) as error:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from metro_lab.arena import EpisodeResult, run_episode, summarize
 from metro_lab.config import ENGINE_SRC
+from metro_lab.scenarios import CLASSIC_SCENARIO_ID, STRESS_SCENARIO_ID
 from metro_lab.simulation import SIMULATION_PROTOCOL_VERSION
 
 
@@ -35,6 +36,7 @@ class ArenaPureTests(unittest.TestCase):
         ]
         summaries = summarize(results)
         self.assertEqual([item.algorithm for item in summaries], ["a", "b"])
+        self.assertTrue(all(item.scenario == CLASSIC_SCENARIO_ID for item in summaries))
         self.assertEqual(summaries[0].mean_deliveries, 15.0)
         self.assertEqual(summaries[0].invalid_actions, 1)
         self.assertEqual(summaries[0].mean_waiting_passengers, 4.0)
@@ -43,6 +45,15 @@ class ArenaPureTests(unittest.TestCase):
         self.assertEqual(summaries[0].invalid_action_rate, 0.2)
         self.assertEqual(summaries[1].game_over_rate, 1.0)
 
+    def test_summary_does_not_mix_scenarios(self):
+        results = [
+            EpisodeResult("a", 1, 10, 0, 1000, 10, False, 0, scenario=CLASSIC_SCENARIO_ID),
+            EpisodeResult("a", 1, 20, 0, 1000, 10, False, 0, scenario=STRESS_SCENARIO_ID),
+        ]
+        summaries = summarize(results)
+        self.assertEqual(len(summaries), 2)
+        self.assertEqual({item.scenario for item in summaries}, {CLASSIC_SCENARIO_ID, STRESS_SCENARIO_ID})
+
 
 @unittest.skipUnless(ENGINE_SRC.exists(), "vendor engine not bootstrapped")
 class ArenaEngineTests(unittest.TestCase):
@@ -50,6 +61,7 @@ class ArenaEngineTests(unittest.TestCase):
         result = run_episode("greedy-v1", 42, minutes=0.02)
         self.assertEqual(result.algorithm, "greedy-v1")
         self.assertEqual(result.seed, 42)
+        self.assertEqual(result.scenario, CLASSIC_SCENARIO_ID)
         self.assertEqual(result.protocol_version, SIMULATION_PROTOCOL_VERSION)
         self.assertEqual(result.simulated_ms, 1200)
         self.assertEqual(result.steps, 12)
@@ -59,6 +71,17 @@ class ArenaEngineTests(unittest.TestCase):
         self.assertGreaterEqual(result.average_fleet_load_pct, 0)
         self.assertGreaterEqual(result.max_stations, 2)
 
+    def test_stress_scenario_reveals_new_station_on_clock(self):
+        result = run_episode(
+            "greedy-v1",
+            42,
+            minutes=0.8,
+            scenario=STRESS_SCENARIO_ID,
+        )
+        self.assertEqual(result.scenario, STRESS_SCENARIO_ID)
+        self.assertGreaterEqual(result.max_stations, 4)
+        self.assertGreater(result.simulated_ms, 45_000)
+
     def test_short_episode_records_replay(self):
         with tempfile.TemporaryDirectory() as temp:
             replay_path = Path(temp) / "greedy-v1--seed-42.jsonl.gz"
@@ -66,6 +89,7 @@ class ArenaEngineTests(unittest.TestCase):
                 "greedy-v1",
                 42,
                 minutes=0.02,
+                scenario=STRESS_SCENARIO_ID,
                 replay_path=replay_path,
                 replay_sample_ms=250,
             )
@@ -74,6 +98,7 @@ class ArenaEngineTests(unittest.TestCase):
                 rows = [json.loads(line) for line in handle]
             self.assertEqual(rows[0]["type"], "header")
             self.assertEqual(rows[0]["algorithm"], "greedy-v1")
+            self.assertEqual(rows[0]["scenario"], STRESS_SCENARIO_ID)
             self.assertEqual(rows[0]["simulation_protocol"], SIMULATION_PROTOCOL_VERSION)
             self.assertTrue(any(row.get("type") == "frame" for row in rows[1:]))
 
