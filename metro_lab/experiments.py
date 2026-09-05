@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .config import ENGINE_COMMIT, ROOT
+from .scenarios import DEFAULT_SCENARIO_ID, get_scenario_spec
 from .simulation import SIMULATION_PROTOCOL_VERSION
 
 SCHEMA_VERSION = 1
@@ -123,7 +124,9 @@ class ExperimentArtifacts:
         minutes: float,
         dt_ms: int,
         replay_sample_ms: int,
+        scenario: str = DEFAULT_SCENARIO_ID,
     ) -> "ExperimentArtifacts":
+        scenario_spec = get_scenario_spec(scenario)
         output_root = Path(output_root)
         output_root.mkdir(parents=True, exist_ok=True)
         algorithm_ids = [str(item) for item in algorithms]
@@ -132,7 +135,7 @@ class ExperimentArtifacts:
         label = "-vs-".join(_safe_slug(item) for item in algorithm_ids[:3]) or "arena"
         if len(algorithm_ids) > 3:
             label += f"-plus{len(algorithm_ids) - 3}"
-        run_id = f"{timestamp}-{label}"
+        run_id = f"{timestamp}-{_safe_slug(scenario)}-{label}"
         run_dir = _unique_run_dir(output_root, run_id)
         run_id = run_dir.name
         replay_dir = run_dir / "replays"
@@ -140,6 +143,7 @@ class ExperimentArtifacts:
         config = {
             "schema_version": SCHEMA_VERSION,
             "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "scenario": scenario_spec.public(),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "engine_commit": ENGINE_COMMIT,
             "algorithms": algorithm_ids,
@@ -163,6 +167,7 @@ class ExperimentArtifacts:
         payload = {
             "schema_version": SCHEMA_VERSION,
             "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "scenario": self.config["scenario"],
             "run_id": self.run_id,
             "config": self.config,
             "results": result_rows,
@@ -187,11 +192,13 @@ class ExperimentArtifacts:
             writer.writerows(rows)
 
     def _write_summary(self, rows: list[dict[str, Any]]) -> None:
+        scenario = self.config["scenario"]
         lines = [
             f"# Arena Experiment · {self.run_id}",
             "",
             f"- Engine: `{ENGINE_COMMIT}`",
             f"- Simulation protocol: `v{SIMULATION_PROTOCOL_VERSION}`",
+            f"- Scenario: `{scenario['id']}` · {scenario['name']}",
             f"- Algorithms: {', '.join(f'`{item}`' for item in self.config['algorithms'])}",
             f"- Seeds: {', '.join(str(item) for item in self.config['seeds'])}",
             f"- Budget: {self.config['minutes']} min / seed",
@@ -226,10 +233,11 @@ class ExperimentArtifacts:
                 "- `Peak station`: worst single-station queue observed in an episode, averaged across seeds.",
                 "- `Fleet load`: time-weighted passenger occupancy while assigned capacity exists.",
                 "- A rejected planner action still consumes the round as a noop under Simulation Protocol V2.",
+                "- Results from different scenario IDs are not directly interchangeable.",
                 "",
                 "## Files",
                 "",
-                "- `config.json`: exact experiment inputs and simulation protocol",
+                "- `config.json`: exact experiment inputs, scenario and simulation protocol",
                 "- `results.json`: machine-readable episode results and summaries",
                 "- `episodes.csv`: one row per algorithm × seed episode",
                 "- `replays/*.jsonl.gz`: sampled game states plus every non-noop decision",
