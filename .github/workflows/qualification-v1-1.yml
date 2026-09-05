@@ -1,9 +1,6 @@
 name: qualification-v1-1
 
 on:
-  push:
-    branches:
-      - feat/greedy-v1-1-pressure-rescue
   workflow_dispatch:
 
 jobs:
@@ -23,7 +20,8 @@ jobs:
         run: ./scripts/bootstrap.sh
 
       # V1.1 qualification set. Frozen before any result from these seeds was
-      # observed. Never use this set to tune V1.1 after this commit.
+      # observed. It is preserved as a manually reproducible historical gate,
+      # not an automatic CI cost. Never use this set to tune V1.1.
       # Generated once with:
       # random.Random(20260907).randrange(0, 2**31) repeated 20 times
       - name: Classic V1.1 frozen holdout
