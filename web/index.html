@@ -2,52 +2,79 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light">
-  <title>Mini Metro Lab</title>
+  <meta name="theme-color" content="#f2f0e9">
+  <title>Mini Metro AI Lab</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
-      <div>
-        <div class="eyebrow">MINI METRO LAB</div>
+      <div class="brand">
+        <div class="eyebrow">MINI METRO · AI LAB</div>
         <h1>地铁算法观战室</h1>
+        <p>让算法自己铺线、调车、救火。你负责看。</p>
       </div>
       <div class="top-metrics" aria-live="polite">
-        <div><span>运送</span><strong id="deliveries">0</strong></div>
-        <div><span>时间</span><strong id="time">00:00</strong></div>
-        <div><span>风险</span><strong id="risk">0%</strong></div>
+        <div><span>已运送</span><strong id="deliveries">0</strong></div>
+        <div><span>运行时间</span><strong id="time">00:00</strong></div>
+        <div><span>拥堵风险</span><strong id="risk">0%</strong></div>
       </div>
     </header>
 
     <section class="workspace">
       <div class="map-panel">
-        <canvas id="metroCanvas" width="1280" height="720" aria-label="实时地铁网络"></canvas>
-        <div class="map-hud">
-          <span id="seed">Seed 42</span>
+        <canvas id="metroCanvas" aria-label="实时地铁网络"></canvas>
+
+        <div class="map-hud map-hud-left">
           <span id="statusDot" class="status-dot"></span>
-          <span id="statusText">运行中</span>
+          <strong id="statusText">连接中</strong>
+          <span class="hud-divider"></span>
+          <span id="seed">Seed 42</span>
+        </div>
+
+        <div class="map-hud map-hud-right">
+          <button id="crowdBtn" class="hud-button active" type="button" aria-pressed="true">客流</button>
+          <button id="immersiveBtn" class="hud-button" type="button" aria-pressed="false">沉浸观战</button>
+        </div>
+
+        <div id="gameOver" class="game-over" hidden>
+          <div class="game-over-kicker">本局结束</div>
+          <strong id="finalScore">运送 0 人</strong>
+          <span>可以用同一个 Seed 重跑，公平比较下一版算法。</span>
         </div>
       </div>
 
-      <aside class="brain-panel">
+      <aside class="brain-panel" aria-label="AI 决策面板">
         <section class="brain-card primary">
-          <div class="section-label">🧠 当前算法</div>
+          <div class="section-label">AI 正在想什么</div>
           <h2 id="algorithm">Greedy Planner V1</h2>
           <div class="decision-title" id="decisionTitle">初始化</div>
           <p id="decisionDetail">等待第一帧状态。</p>
-          <div class="action-chip" id="actionChip">NOOP</div>
+          <div class="decision-meta">
+            <span class="action-chip" id="actionChip">NOOP</span>
+            <span id="actionState" class="action-state">等待执行</span>
+          </div>
         </section>
 
         <section class="brain-card">
           <div class="section-label">网络资源</div>
           <div class="resource-grid">
             <div><span>线路</span><strong id="lineCount">0</strong></div>
-            <div><span>机车</span><strong id="locoCount">0</strong></div>
-            <div><span>车厢</span><strong id="carriageCount">0</strong></div>
             <div><span>车站</span><strong id="stationCount">0</strong></div>
+            <div><span>机车</span><strong id="locoCount">0/0</strong></div>
+            <div><span>车厢</span><strong id="carriageCount">0/0</strong></div>
           </div>
+        </section>
+
+        <section class="brain-card pressure-card">
+          <div class="section-label">最危险车站</div>
+          <div class="pressure-row">
+            <strong id="pressureCount">0 人候车</strong>
+            <span id="pressureHint">网络很平静</span>
+          </div>
+          <div class="pressure-track"><i id="pressureBar"></i></div>
         </section>
 
         <section class="brain-card history-card">
@@ -57,18 +84,24 @@
       </aside>
     </section>
 
-    <footer class="controls">
-      <button id="pauseBtn" type="button">暂停</button>
-      <div class="speed-group" aria-label="速度">
+    <footer class="controls" aria-label="模拟控制">
+      <button id="pauseBtn" class="primary-control" type="button">暂停</button>
+      <div class="speed-group" aria-label="模拟速度">
         <button class="speed active" data-speed="1" type="button">1×</button>
         <button class="speed" data-speed="2" type="button">2×</button>
         <button class="speed" data-speed="4" type="button">4×</button>
       </div>
       <div class="spacer"></div>
-      <button id="restartBtn" class="secondary" type="button">同种子重开</button>
+      <button id="restartBtn" class="secondary" type="button">同 Seed 重开</button>
       <button id="randomBtn" class="secondary" type="button">随机新局</button>
     </footer>
+
+    <div class="footnote">
+      <span>本地运行 · 状态不上传</span>
+      <span id="engineCommit">engine …</span>
+    </div>
   </main>
+
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="/app.js"></script>
 </body>
