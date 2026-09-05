@@ -31,7 +31,7 @@ jobs:
         run: ./scripts/bootstrap.sh
 
       - name: Compile
-        run: .venv/bin/python -m compileall -q metro_lab tests
+        run: .venv/bin/python -m compileall -q metro_lab tests scripts/probe_relayout.py
 
       - name: Unit + engine smoke tests
         run: .venv/bin/python -m unittest discover -s tests -v
@@ -59,6 +59,16 @@ jobs:
             --seeds 1907374266 805162878 657531977 978077348 1255654432 \
             --minutes 15 \
             --no-save
+
+      # Seed 1907374266 improved by +8 vs V2.1 while 805162878 lost -1.
+      # Probe only these already-observed development cases to explain mechanism.
+      - name: V2.2 relayout diagnostic probe
+        if: github.event_name == 'pull_request'
+        run: |
+          .venv/bin/python scripts/probe_relayout.py \
+            --scenario stress-v1 \
+            --seeds 1907374266 805162878 \
+            --minutes 15
 
       - name: HTTP live-view smoke test
         shell: bash
