@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pytest
+import unittest
 
 from metro_lab.planner import Decision
 from metro_lab.plugin import (
@@ -37,28 +37,31 @@ class WrongContractPlugin(EchoPlugin):
     )
 
 
-def test_plugin_registry_registers_and_recreates_plugins() -> None:
-    registry = AlgorithmPluginRegistry()
+class PluginContractTests(unittest.TestCase):
+    def test_registry_registers_and_recreates_plugins(self) -> None:
+        registry = AlgorithmPluginRegistry()
 
-    metadata = registry.register(EchoPlugin)
-    plugin = registry.create("echo-test")
+        metadata = registry.register(EchoPlugin)
+        plugin = registry.create("echo-test")
 
-    assert metadata.id == "echo-test"
-    assert registry.ids() == ("echo-test",)
-    assert registry.metadata() == (metadata,)
-    assert plugin.metadata.problem_contract == PROBLEM_CONTRACT_VERSION
+        self.assertEqual(metadata.id, "echo-test")
+        self.assertEqual(registry.ids(), ("echo-test",))
+        self.assertEqual(registry.metadata(), (metadata,))
+        self.assertEqual(plugin.metadata.problem_contract, PROBLEM_CONTRACT_VERSION)
 
-
-def test_plugin_registry_rejects_duplicate_ids() -> None:
-    registry = AlgorithmPluginRegistry()
-    registry.register(EchoPlugin)
-
-    with pytest.raises(PluginRegistrationError, match="duplicate algorithm id"):
+    def test_registry_rejects_duplicate_ids(self) -> None:
+        registry = AlgorithmPluginRegistry()
         registry.register(EchoPlugin)
 
+        with self.assertRaisesRegex(PluginRegistrationError, "duplicate algorithm id"):
+            registry.register(EchoPlugin)
 
-def test_plugin_registry_rejects_contract_mismatch() -> None:
-    registry = AlgorithmPluginRegistry()
+    def test_registry_rejects_contract_mismatch(self) -> None:
+        registry = AlgorithmPluginRegistry()
 
-    with pytest.raises(PluginRegistrationError, match="unsupported problem contract"):
-        registry.register(WrongContractPlugin)
+        with self.assertRaisesRegex(PluginRegistrationError, "unsupported problem contract"):
+            registry.register(WrongContractPlugin)
+
+
+if __name__ == "__main__":
+    unittest.main()
