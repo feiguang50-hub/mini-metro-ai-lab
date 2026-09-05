@@ -17,13 +17,13 @@ class BalancedGreedyV21Planner(BalancedGreedyPlanner):
     """Balanced V2.1: keep V2 topology, repair high-pressure fleet control.
 
     The pinned engine does not expose passenger ``wait_ms`` in its public
-    observation.  We therefore reconstruct a player-visible approximation from
+    observation. We therefore reconstruct a player-visible approximation from
     passenger IDs: a waiting episode starts when an ID first appears at a
     station and resets when the ID leaves or changes station.
 
     V2's relative fleet thresholds were impossible to satisfy on a one-line
-    network (the busiest line is also the average line).  V2.1 adds an absolute
-    pressure / waiting-age rescue layer after V2 declines to act.  The rescue
+    network (the busiest line is also the average line). V2.1 adds an absolute
+    pressure / waiting-age rescue layer after V2 declines to act. The rescue
     layer intentionally avoids topology changes: under pressure it spends
     available capacity on the line that contains the oldest waiting riders.
     """
@@ -32,7 +32,11 @@ class BalancedGreedyV21Planner(BalancedGreedyPlanner):
 
     WARNING_WAIT_MS = 25_000
     CRITICAL_WAIT_MS = 30_000
-    RESCUE_ACTION_COOLDOWN_MS = 900
+    # V1 can spend consecutive ticks adding fleet capacity. The first V2.1
+    # experiment inserted a 900 ms rescue cooldown without evidence and scored
+    # 65 vs V1's 104 on Stress seed 2026. Keep this at zero so the next paired
+    # experiment isolates whether throttled fleet deployment caused that gap.
+    RESCUE_ACTION_COOLDOWN_MS = 0
 
     def __init__(self) -> None:
         super().__init__()
@@ -130,7 +134,7 @@ class BalancedGreedyV21Planner(BalancedGreedyPlanner):
         carriages = int(fleet.get("carriages_available", 0))
 
         # Near the engine's 40-second deadline, visit frequency is the first
-        # priority.  A fresh locomotive can reach the stranded rider sooner than
+        # priority. A fresh locomotive can reach the stranded rider sooner than
         # adding capacity to an existing train that may be on the far side of a
         # long route.
         if locomotives > 0 and oldest_ms >= self.CRITICAL_WAIT_MS:
@@ -165,7 +169,7 @@ class BalancedGreedyV21Planner(BalancedGreedyPlanner):
         ages = self._update_waiting(observation)
 
         # V2 remains responsible for creating/serving the basic network and for
-        # low-pressure topology choices.  Rescue only fills the exact hole that
+        # low-pressure topology choices. Rescue only fills the exact hole that
         # Stress V1 exposed: V2 can decline fleet expansion forever on a single
         # line because its relative threshold compares that line with itself.
         decision = super().act(observation)
