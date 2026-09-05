@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from .balanced_planner import BalancedGreedyPlanner
 from .planner import GreedyPlanner
+from .rescue_planner import BalancedGreedyV21Planner
 
 PlannerFactory = Callable[[], Any]
 
@@ -54,6 +55,16 @@ ALGORITHM_SPECS: tuple[AlgorithmSpec, ...] = (
         summary="同时考虑站型多样性、线路长度、客流压力和网络分流机会的多目标启发式。",
         tags=("候选", "多目标", "可解释"),
         factory=BalancedGreedyPlanner,
+    ),
+    AlgorithmSpec(
+        id="balanced-greedy-v2-1",
+        name="Balanced Greedy V2.1 Rescue",
+        family="启发式",
+        version="2.1-candidate",
+        status="candidate",
+        summary="在 V2 拓扑上加入公开观测可重建的候车年龄与定点救火，修复单线网络无法扩容的问题。",
+        tags=("候选", "救火", "候车年龄", "可解释"),
+        factory=BalancedGreedyV21Planner,
     ),
     AlgorithmSpec(
         id="beam-search",

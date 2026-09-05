@@ -41,7 +41,7 @@ jobs:
         run: |
           .venv/bin/mini-metro-arena \
             --scenario classic-v1 \
-            --algorithms greedy-v1 balanced-greedy-v2 \
+            --algorithms greedy-v1 balanced-greedy-v2 balanced-greedy-v2-1 \
             --seeds 42 314 2026 4096 65537 \
             --minutes 15 \
             --no-save
@@ -51,8 +51,30 @@ jobs:
         run: |
           .venv/bin/mini-metro-arena \
             --scenario stress-v1 \
-            --algorithms greedy-v1 balanced-greedy-v2 \
+            --algorithms greedy-v1 balanced-greedy-v2 balanced-greedy-v2-1 \
             --seeds 42 314 2026 4096 65537 \
+            --minutes 15 \
+            --no-save
+
+      # Frozen before seeing V2.1 results. Generated once with
+      # random.Random(20260905).sample(range(1, 2147483647), 20).
+      - name: Classic V2.1 holdout qualification
+        if: github.event_name == 'pull_request'
+        run: |
+          .venv/bin/mini-metro-arena \
+            --scenario classic-v1 \
+            --algorithms greedy-v1 balanced-greedy-v2-1 \
+            --seeds 1261395130 2107621448 580247724 179684729 1540194440 1244916750 1102021607 675561140 1927311155 1022110120 226124509 1678626444 1575673805 1399800420 489765635 88125961 640183564 2024682170 1978872532 444604339 \
+            --minutes 15 \
+            --no-save
+
+      - name: Stress V2.1 holdout qualification
+        if: github.event_name == 'pull_request'
+        run: |
+          .venv/bin/mini-metro-arena \
+            --scenario stress-v1 \
+            --algorithms greedy-v1 balanced-greedy-v2-1 \
+            --seeds 1261395130 2107621448 580247724 179684729 1540194440 1244916750 1102021607 675561140 1927311155 1022110120 226124509 1678626444 1575673805 1399800420 489765635 88125961 640183564 2024682170 1978872532 444604339 \
             --minutes 15 \
             --no-save
 
