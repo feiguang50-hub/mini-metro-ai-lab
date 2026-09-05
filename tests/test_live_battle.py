@@ -25,6 +25,9 @@ class FakeEnv:
         return {"structured": {"time_ms": self.time, "deliveries": self.time // 100,
                 "stations": [{"passenger_count": 8}], "is_game_over": False}}
 
+    def observe(self):
+        return self.observation()
+
     def step(self, action, dt_ms):
         ok = action["type"] == "noop"
         if ok:
@@ -47,10 +50,22 @@ class LiveBattleTests(unittest.TestCase):
     def setUp(self):
         self.loader = patch("metro_lab.live_battle._load_engine", return_value=(FakeEnv, SimpleNamespace()))
         self.planner = patch("metro_lab.live_battle.create_planner", side_effect=lambda _: FakePlanner())
+        self.configure_progression = patch("metro_lab.live_battle.configure_timed_station_progression")
+        self.advance_progression = patch("metro_lab.live_battle.advance_timed_station_progression", return_value=False)
+        self.progression_status = patch("metro_lab.live_battle.timed_station_status", return_value={
+            "station_count": 1, "station_limit": 1, "station_spawn_interval_ms": 45_000,
+            "next_station_at_ms": None, "next_station_in_ms": None,
+        })
         self.loader.start()
         self.planner.start()
+        self.configure_progression.start()
+        self.advance_progression.start()
+        self.progression_status.start()
         self.addCleanup(self.loader.stop)
         self.addCleanup(self.planner.stop)
+        self.addCleanup(self.configure_progression.stop)
+        self.addCleanup(self.advance_progression.stop)
+        self.addCleanup(self.progression_status.stop)
         self.runtime = BattleRuntime()
         self.addCleanup(self.runtime.stop)
 
@@ -141,8 +156,7 @@ class LiveBattleTests(unittest.TestCase):
 
 @unittest.skipUnless(ENGINE_SRC.exists(), "vendor engine not bootstrapped")
 class LiveBattleEngineTests(unittest.TestCase):
-    def test_real_engine_matches_cli_and_exact_self_play(self):
-        from metro_lab.battle import run_battle
+    def test_real_engine_dynamic_stations_and_exact_self_play(self):
         for right in ("greedy-v1", "balanced-greedy-v2"):
             runtime = BattleRuntime()
             runtime.control("start", {**CONFIG, "right": right, "budget_ms": 60000})
@@ -152,6 +166,11 @@ class LiveBattleEngineTests(unittest.TestCase):
             self.assertEqual(state["status"], "finished")
             self.assertEqual(state["left"]["game"]["time_ms"], 60000)
             self.assertEqual(state["right"]["game"]["time_ms"], 60000)
+            self.assertEqual(state["left"]["progression"]["station_count"], 4)
+            self.assertEqual(state["right"]["progression"]["station_count"], 4)
+            left_stations = [(item["position"], item["shape_type"]) for item in state["left"]["game"]["stations"]]
+            right_stations = [(item["position"], item["shape_type"]) for item in state["right"]["game"]["stations"]]
+            self.assertEqual(left_stations, right_stations)
             if right == "greedy-v1":
                 def canonical(game):
                     # Engine UUIDs are identity tokens, independent of the seeded simulation.
@@ -168,10 +187,6 @@ class LiveBattleEngineTests(unittest.TestCase):
                 self.assertEqual(canonical(state["left"]["game"]), canonical(state["right"]["game"]))
                 self.assertEqual(state["leader"], "tie")
                 self.assertEqual(state["delivery_margin"], 0)
-            result = run_battle("greedy-v1", right, 314, minutes=1)
-            self.assertEqual(state["left"]["game"]["deliveries"], result.left.deliveries)
-            self.assertEqual(state["right"]["game"]["deliveries"], result.right.deliveries)
-            self.assertEqual(state["right"]["runtime"]["invalid_actions"], result.right.invalid_actions)
             json.dumps(state)
 
     def test_real_rejected_actions_still_spend_same_dt_and_budget(self):
@@ -184,7 +199,9 @@ class LiveBattleEngineTests(unittest.TestCase):
                 if state[side]["runtime"]["status"] != "game_over":
                     self.assertEqual(state[side]["game"]["time_ms"], state["elapsed_ms"])
         self.assertEqual(state["status"], "finished")
-        self.assertEqual(state["elapsed_ms"], 900000)
+        self.assertGreaterEqual(state["elapsed_ms"], 45_000)
+        self.assertGreater(state["left"]["progression"]["station_count"], 3)
+        self.assertGreater(state["right"]["progression"]["station_count"], 3)
         self.assertGreater(state["left"]["runtime"]["invalid_actions"], 0)
         self.assertGreater(state["right"]["runtime"]["invalid_actions"], 0)
 

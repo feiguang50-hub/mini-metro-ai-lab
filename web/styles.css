@@ -58,6 +58,7 @@ h2 { margin: 0 0 15px; font-size: 16px; color: #d7d8d3; font-weight: 620; }
 .action-state.bad { color: #e59b9b; }
 .resource-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
 .resource-grid > div { padding: 9px 10px; border-radius: 11px; background: rgba(247,245,239,.78); border: 1px solid rgba(115,116,111,.08); }
+.resource-grid small { display: block; margin-top: 3px; color: #94674e; font-size: 9px; font-variant-numeric: tabular-nums; }
 .resource-grid strong { font-size: 17px; font-variant-numeric: tabular-nums; }
 .pressure-card { padding-bottom: 16px; }
 .pressure-row { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }

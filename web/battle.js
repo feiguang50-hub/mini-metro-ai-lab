@@ -9,6 +9,12 @@
   let catalogReady = false;
   let controlError = "";
   const time = (ms) => `${(ms / 1000).toFixed(1)} 秒`;
+  const stationText = (progression) => {
+    const count = `${progression.station_count}/${progression.station_limit} 站`;
+    return progression.next_station_in_ms == null
+      ? `${count} · 已全部出现`
+      : `${count} · 下一站 ${time(progression.next_station_in_ms)}`;
+  };
 
   function render(next) {
     if (state?.session_id !== next.session_id) Object.values(renderers).forEach((r) => r.reset());
@@ -24,6 +30,7 @@
       $(side + 'Name').textContent = `${side === 'left' ? '左' : '右'} · ${current.runtime.algorithm}`;
       $(side + 'Status').textContent = `${labels[current.runtime.status]} · ${time(current.game.time_ms)}`;
       $(side + 'Risk').textContent = `风险 ${current.runtime.risk}%`;
+      $(side + 'Stations').textContent = stationText(current.progression);
       $(side + 'Decision').textContent = `${current.decision.title}：${current.decision.detail} · 无效动作 ${current.runtime.invalid_actions}`;
     }
     if (next.error) showError(next.error);

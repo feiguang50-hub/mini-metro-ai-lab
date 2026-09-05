@@ -10,6 +10,11 @@ from .algorithms import available_algorithm_ids, create_planner, get_algorithm_s
 from .config import ENGINE_COMMIT, TICK_MS
 from .engine import _jsonable, _load_engine
 from .planner import Decision
+from .viewer_scenario import (
+    advance_timed_station_progression,
+    configure_timed_station_progression,
+    timed_station_status,
+)
 
 
 class BattleRuntime:
@@ -73,6 +78,8 @@ class BattleRuntime:
             for key in ("left", "right"):
                 env = Env(dt_ms=config["dt_ms"], reward_mode="deliveries")
                 obs = env.reset(seed=config["seed"])
+                configure_timed_station_progression(env)
+                obs = env.observe()
                 planner = create_planner(config[key])
                 planner.reset(obs)
                 sides.append(dict(env=env, obs=obs, planner=planner, done=False,
@@ -102,6 +109,8 @@ class BattleRuntime:
                         # The pinned engine does not tick time on a rejected action.
                         # Spend this round as a noop so neither side gains extra time.
                         obs, _, done, _ = side["env"].step({"type": "noop"}, dt_ms=self._config["dt_ms"])
+                    if advance_timed_station_progression(side["env"]):
+                        obs = side["env"].observe()
                     side.update(obs=obs, done=bool(done or obs["structured"].get("is_game_over")),
                                 decision=decision, action_ok=action_ok)
                     if decision.action.get("type") != "noop" and not side["action_ok"]:
@@ -143,6 +152,7 @@ class BattleRuntime:
                                  seed=self._config["seed"], risk=min(100, round(waiting / max(1, threshold) * 100)),
                                  overdue_threshold=threshold, invalid_actions=side["invalid"],
                                  status="game_over" if side["done"] else self._status),
+                    progression=timed_station_status(side["env"]),
                     game=game, decision=_jsonable(asdict(side["decision"])))
             margin = result["left"]["game"].get("deliveries", 0) - result["right"]["game"].get("deliveries", 0)
             result.update(delivery_margin=abs(margin), leader="left" if margin > 0 else "right" if margin < 0 else "tie")
