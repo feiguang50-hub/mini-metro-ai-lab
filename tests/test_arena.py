@@ -1,4 +1,8 @@
+import gzip
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from metro_lab.arena import EpisodeResult, run_episode, summarize
 from metro_lab.config import ENGINE_SRC
@@ -28,6 +32,23 @@ class ArenaEngineTests(unittest.TestCase):
         self.assertGreater(result.steps, 0)
         self.assertGreater(result.simulated_ms, 0)
         self.assertGreaterEqual(result.deliveries, 0)
+
+    def test_short_episode_records_replay(self):
+        with tempfile.TemporaryDirectory() as temp:
+            replay_path = Path(temp) / "greedy-v1--seed-42.jsonl.gz"
+            run_episode(
+                "greedy-v1",
+                42,
+                minutes=0.02,
+                replay_path=replay_path,
+                replay_sample_ms=250,
+            )
+            self.assertTrue(replay_path.is_file())
+            with gzip.open(replay_path, "rt", encoding="utf-8") as handle:
+                rows = [json.loads(line) for line in handle]
+            self.assertEqual(rows[0]["type"], "header")
+            self.assertEqual(rows[0]["algorithm"], "greedy-v1")
+            self.assertTrue(any(row.get("type") == "frame" for row in rows[1:]))
 
 
 if __name__ == "__main__":
