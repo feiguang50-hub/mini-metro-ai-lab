@@ -260,3 +260,27 @@ GitHub Actions 会真实执行：
 ## 来源与许可
 
 底层引擎 `python_mini_metro` 由 Yanfeng Liu 开发并采用 MIT License，详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。本仓库新增代码同样采用 MIT License。
+
+## 浏览器双算法 Battle
+
+启动 `./run.sh` 后，从观战室点击「进入双算法对战」，或打开
+[本地 Battle 页面](http://127.0.0.1:8765/battle.html)。原单算法页面及控制保持可用。
+
+- 从算法库分别选择左右算法；尚未实现的算法不可选。
+- 设置同一个 Seed、每步时长（默认 100 ms）和共同模拟预算（默认 900 秒）。预算必须是步长的整数倍。
+- 「开始新对战」应用表单配置；「原配置重开」忽略未提交的表单修改，重置双方环境、决策器和比分。
+- 顶部显示运送比分、领先人数、对战状态；每侧显示拥堵风险、运行状态和最新决策。
+- 服务端逐轮推进两个独立环境，一次发布同一轮双方快照。浏览器刷新和多开页面不会增加模拟步数。
+- 上游引擎拒绝动作时不走时；浏览器 Battle 会以 noop 消耗该轮固定 dt，保留无效动作计数，避免双方时钟分叉。旧 CLI/benchmark 的拒绝动作语义未改，因此旧报告的时长可能略短于预算。
+- 一侧 Game Over 后冻结，另一侧继续至共同预算；双方均结束则提前停止。风险为候车人数占拥堵阈值的比例，并非失败概率。
+- 当前服务共用一个 Battle 会话；其他浏览器发起新对战也会替换该会话。单算法会话独立运行。
+
+API：`GET /api/battle/state` 返回状态、配置、轮数和左右快照；
+`POST /api/battle/control` 接受 `{"command":"start","value":{"left":"greedy-v1","right":"balanced-greedy-v2","seed":42,"dt_ms":100,"budget_ms":900000}}`
+或 `{"command":"restart"}`。非法请求返回 400 且不替换现有会话。
+Seed 范围 0..2147483647、步长 10..1000 ms、预算 100..3600000 ms，均须为整数。
+
+新增验证：`node --test tests/web_battle.cjs`（Node 22）以及 Python 测试中的
+`test_live_battle.py`：API、同步快照、预算、重开、单侧结束和固定版本真实引擎对照。
+CI 同时保留原有单算法 smoke test 和候选 benchmark。
+Balanced Greedy V2 仍是 **candidate**；可视化对战不会自动晋级算法。

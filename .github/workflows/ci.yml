@@ -14,6 +14,13 @@ jobs:
         with:
           python-version: '3.13'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Frontend behavior contracts
+        run: node --test tests/web_battle.cjs
+
       - name: Install uv
         run: python -m pip install --disable-pip-version-check uv
 
@@ -62,6 +69,8 @@ jobs:
 
           python - <<'PY'
           import json
+          import time
+          from urllib.request import Request, urlopen
           from pathlib import Path
 
           state = json.loads(Path('/tmp/state.json').read_text())
@@ -69,4 +78,27 @@ jobs:
           assert len(state['game']['stations']) >= 2
           assert 'decision' in state
           print('live-view smoke ok:', state['game']['time_ms'], 'ms')
+
+          base = 'http://127.0.0.1:18765'
+          def post(command, value=None):
+              body = json.dumps({'command': command, 'value': value}).encode()
+              with urlopen(Request(base + '/api/battle/control', data=body,
+                                   headers={'Content-Type': 'application/json'}), timeout=5) as response:
+                  assert json.load(response)['ok']
+          post('start', {'left': 'greedy-v1', 'right': 'greedy-v1',
+                         'seed': 314, 'dt_ms': 100, 'budget_ms': 300})
+          for _ in range(30):
+              with urlopen(base + '/api/battle/state', timeout=5) as response:
+                  battle = json.load(response)
+              if battle['status'] == 'finished':
+                  break
+              time.sleep(.1)
+          assert battle['status'] == 'finished', battle
+          assert battle['left']['game']['time_ms'] == battle['right']['game']['time_ms'] == 300
+          assert battle['leader'] == 'tie' and battle['delivery_margin'] == 0
+          session = battle['session_id']
+          post('restart')
+          with urlopen(base + '/api/battle/state', timeout=5) as response:
+              assert json.load(response)['session_id'] == session + 1
+          print('HTTP battle smoke ok: fixed dt, paired state, budget, self-play, restart')
           PY
