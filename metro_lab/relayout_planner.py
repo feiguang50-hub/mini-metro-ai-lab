@@ -138,9 +138,10 @@ class BalancedGreedyV22Planner(BalancedGreedyV21Planner):
             return decision
 
         path = paths[path_index]
+        before_route_ids = [str(item) for item in path.get("station_ids", ())]
         signature = (
             str(path.get("id", path_index)),
-            tuple(str(item) for item in path.get("station_ids", ())),
+            tuple(before_route_ids),
             tuple(route_ids),
         )
         self._attempted_relayouts.add(signature)
@@ -152,6 +153,12 @@ class BalancedGreedyV22Planner(BalancedGreedyV21Planner):
                 "path_index": path_index,
                 "stations": route_indices,
                 "loop": False,
+                # Lab-only namespaced diagnostics. The pinned engine ignores
+                # unrelated payload keys; the probe reads these before submit.
+                "_lab_kind": "relayout-2opt",
+                "_lab_improvement_px": round(float(improvement), 3),
+                "_lab_before_route": before_route_ids,
+                "_lab_after_route": list(route_ids),
             },
             "2-opt 缩短线路",
             f"第 {path_index + 1} 条线路保持端点不变，预计减少约 {improvement:.1f} 像素绕行。",
