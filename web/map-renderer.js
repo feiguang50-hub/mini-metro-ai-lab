@@ -3,6 +3,9 @@ window.createMetroRenderer = function(canvas) {
   let crowdVisible = true;
   let viewport = { width: 1280, height: 720, dpr: 1 };
   const trainVisuals = new Map();
+  const knownStations = new Set();
+  const stationBirths = new Map();
+  let stationSetInitialized = false;
   function colorOf(value, fallback) {
     if (Array.isArray(value) && value.length >= 3) return `rgb(${value[0]},${value[1]},${value[2]})`;
     if (typeof value === 'string' && value) return value;
@@ -116,6 +119,45 @@ window.createMetroRenderer = function(canvas) {
     ctx.restore();
   }
 
+  function trackNewStations(stations) {
+    const now = Date.now();
+    const active = new Set(stations.map((station) => station.id));
+    for (const station of stations) {
+      if (!knownStations.has(station.id)) {
+        knownStations.add(station.id);
+        if (stationSetInitialized) stationBirths.set(station.id, now);
+      }
+    }
+    for (const id of [...knownStations]) {
+      if (!active.has(id)) {
+        knownStations.delete(id);
+        stationBirths.delete(id);
+      }
+    }
+    stationSetInitialized = true;
+  }
+
+  function drawStationArrival(station, point) {
+    const bornAt = stationBirths.get(station.id);
+    if (!bornAt) return;
+    const age = Date.now() - bornAt;
+    if (age >= 3200) {
+      stationBirths.delete(station.id);
+      return;
+    }
+    const progress = age / 3200;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 17 + progress * 28, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(212, 112, 66, ${0.72 * (1 - progress)})`;
+    ctx.lineWidth = 4 - progress * 2;
+    ctx.stroke();
+    ctx.fillStyle = `rgba(151, 67, 37, ${1 - progress})`;
+    ctx.font = '700 10px system-ui';
+    ctx.fillText('新站', point.x + 18, point.y - 17);
+    ctx.restore();
+  }
+
   function waitingByStation(game) {
     const map = new Map();
     for (const passenger of game.passengers || []) {
@@ -178,6 +220,7 @@ window.createMetroRenderer = function(canvas) {
     const byId = new Map(stations.map((station) => [station.id, station]));
     const waiters = waitingByStation(game);
     const threshold = Math.max(1, Number(current.runtime?.overdue_threshold) || 10);
+    trackNewStations(stations);
 
     beginFrame();
     ctx.save();
@@ -226,9 +269,10 @@ window.createMetroRenderer = function(canvas) {
       const waiting = Math.max(Number(station.passenger_count) || 0, shapes.length);
       drawStation(point.x, point.y, shapeName(station.shape_type), waiting / threshold);
       drawWaitingPassengers(point, shapes, threshold);
+      drawStationArrival(station, point);
     });
   }
 
 
-  return { draw(current) { resizeCanvas(); drawNetwork(current); }, resize: resizeCanvas, reset() { trainVisuals.clear(); }, setCrowd(value) { crowdVisible = value; } };
+  return { draw(current) { resizeCanvas(); drawNetwork(current); }, resize: resizeCanvas, reset() { trainVisuals.clear(); knownStations.clear(); stationBirths.clear(); stationSetInitialized = false; }, setCrowd(value) { crowdVisible = value; } };
 };

@@ -77,6 +77,9 @@
     $('locoCount').textContent = `${fleet.locomotives_assigned ?? 0}/${fleet.locomotives_total ?? 0}`;
     $('carriageCount').textContent = `${fleet.carriages_assigned ?? 0}/${fleet.carriages_total ?? 0}`;
     $('stationCount').textContent = stations.length;
+    $('nextStation').textContent = current.runtime.next_station_in_ms == null
+      ? `${current.runtime.station_limit} 站已全部出现`
+      : `下一站 ${(current.runtime.next_station_in_ms / 1000).toFixed(1)} 秒`;
     $('pressureCount').textContent = `${maxWaiting} 人候车`;
     $('pressureHint').textContent = pressureRatio >= .75 ? '需要马上处理' : pressureRatio >= .45 ? '压力正在上升' : maxWaiting ? '仍在安全区间' : '网络很平静';
     $('pressureBar').style.width = `${Math.round(pressureRatio * 100)}%`;

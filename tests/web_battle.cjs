@@ -23,7 +23,7 @@ function fixture() {
   return { elements, requests, timers, renderers, reply };
 }
 function state(session=1) {
-  const side = { runtime: { algorithm: 'Greedy', risk: 20, status: 'running', invalid_actions: 0 }, game: { deliveries: 2, time_ms: 100 }, decision: { title: '铺线', detail: 'test' } };
+  const side = { runtime: { algorithm: 'Greedy', risk: 20, status: 'running', invalid_actions: 0 }, progression: {station_count:3,station_limit:20,next_station_in_ms:44900}, game: { deliveries: 2, time_ms: 100 }, decision: { title: '铺线', detail: 'test' } };
   return {session_id:session, status:'running', config:{seed:42,dt_ms:100,budget_ms:300}, round:1, elapsed_ms:100, left:side, right:side, leader:'tie', delivery_margin:0};
 }
 
@@ -37,6 +37,7 @@ test('catalog availability, paired scores and submitted common config', async ()
   assert.equal(f.elements.rightAlgorithm.children[2].disabled, true);
   assert.equal(f.elements.score.textContent, '2 : 2');
   assert.equal(f.elements.leftRisk.textContent, '风险 20%');
+  assert.equal(f.elements.leftStations.textContent, '3/20 站 · 下一站 44.9 秒');
   Object.assign(f.elements.battleSeed, {value:'314'});
   Object.assign(f.elements.battleDt, {value:'100'});
   Object.assign(f.elements.battleBudget, {value:'0.3'});
@@ -92,4 +93,19 @@ test('shared renderer draws numeric engine shapes exactly like their named equiv
   const shapes = ['square','circle','triangle','cross','diamond','pentagon','star'];
   shapes.forEach((name, index) => assert.deepEqual(draw(String(index+1)),draw(name)));
   assert.notDeepEqual(draw('1'),draw('2'));
+});
+
+test('shared renderer marks a station added after the initial frame', () => {
+  const calls = [];
+  const ctx = new Proxy({}, {get(target, name) { return (...args) => calls.push([name, ...args]); }});
+  const canvas = {width:640,height:360,getContext:()=>ctx,getBoundingClientRect:()=>({width:640,height:360})};
+  const context = {window:{devicePixelRatio:1},Date};
+  vm.runInNewContext(fs.readFileSync('web/map-renderer.js','utf8'), context);
+  const renderer = context.window.createMetroRenderer(canvas);
+  const station = (id, x) => ({id,position:[x,100],shape_type:'2'});
+  const current = (stations) => ({runtime:{overdue_threshold:2},engine:{screen_width:640,screen_height:360},game:{stations}});
+  renderer.draw(current([station('a', 100), station('b', 200), station('c', 300)]));
+  calls.length = 0;
+  renderer.draw(current([station('a', 100), station('b', 200), station('c', 300), station('d', 400)]));
+  assert.ok(calls.some((call) => call[0] === 'fillText' && call[1] === '新站'));
 });

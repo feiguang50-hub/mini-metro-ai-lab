@@ -18,6 +18,11 @@ from .algorithms import (
 )
 from .config import ENGINE_COMMIT, ENGINE_ROOT, ENGINE_SRC, TICK_MS
 from .planner import Decision
+from .viewer_scenario import (
+    advance_timed_station_progression,
+    configure_timed_station_progression,
+    timed_station_status,
+)
 
 
 def _jsonable(value: Any) -> Any:
@@ -75,6 +80,8 @@ class LabRuntime:
         self._planner = create_planner(self._algorithm_id)
         self._env = self._MiniMetroEnv(dt_ms=TICK_MS, reward_mode="deliveries")
         self._observation = self._env.reset(seed=self._seed)
+        configure_timed_station_progression(self._env)
+        self._observation = self._env.observe()
         self._planner.reset(self._observation)
         self._history.clear()
         spec = get_algorithm_spec(self._algorithm_id)
@@ -119,6 +126,8 @@ class LabRuntime:
                     self._last_decision = decision
                     dt = TICK_MS * self._speed
                     obs, _reward, _done, info = self._env.step(decision.action, dt_ms=dt)
+                    if advance_timed_station_progression(self._env):
+                        obs = self._env.observe()
                     self._observation = obs
                     self._action_ok = bool(info.get("action_ok", False))
                     self._record(decision, self._action_ok, int(obs["structured"]["time_ms"]))
@@ -184,6 +193,7 @@ class LabRuntime:
                     "action_ok": self._action_ok,
                     "risk": risk,
                     "overdue_threshold": threshold,
+                    **timed_station_status(self._env),
                 },
                 "algorithms": self.algorithm_library(),
                 "decision": _jsonable(asdict(self._last_decision)),

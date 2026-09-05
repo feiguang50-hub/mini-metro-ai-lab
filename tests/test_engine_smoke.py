@@ -23,6 +23,8 @@ class EngineSmokeTests(unittest.TestCase):
         self.assertEqual(snapshot["runtime"]["algorithm_id"], DEFAULT_ALGORITHM_ID)
         self.assertGreaterEqual(len(snapshot["game"]["stations"]), 2)
         self.assertGreater(snapshot["game"]["time_ms"], 0)
+        self.assertEqual(snapshot["runtime"]["station_count"], len(snapshot["game"]["stations"]))
+        self.assertEqual(snapshot["runtime"]["station_spawn_interval_ms"], 45_000)
         self.assertTrue(any(item["id"] == DEFAULT_ALGORITHM_ID for item in snapshot["algorithms"]))
         self.assertIn(snapshot["decision"]["action"]["type"], {
             "noop",
