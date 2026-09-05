@@ -82,7 +82,7 @@ class RescuePlannerTests(unittest.TestCase):
         decision = planner.act(obs)
         self.assertEqual(decision.action, {"type": "assign_locomotive", "path_index": 0})
 
-    def test_wait_age_triggers_same_rescue_on_v1_and_v2_topologies(self):
+    def test_wait_age_triggers_same_critical_rescue_on_v1_and_v2_topologies(self):
         for planner_cls in (GreedyPressureV11Planner, BalancedGreedyV21Planner):
             with self.subTest(planner=planner_cls.__name__):
                 planner = planner_cls()
@@ -107,6 +107,41 @@ class RescuePlannerTests(unittest.TestCase):
         baseline.reset(obs)
         candidate.reset(obs)
         self.assertEqual(candidate.act(obs).action, baseline.act(obs).action)
+
+    def test_v11_does_not_dump_resources_for_one_warning_age_rider(self):
+        planner = GreedyPressureV11Planner()
+        planner.reset(observation(time_ms=0, waiting=("old",), carriages_available=2))
+        decision = planner.act(
+            observation(
+                time_ms=25_000,
+                waiting=("old",),
+                locomotives_available=3,
+                carriages_available=2,
+            )
+        )
+        self.assertEqual(decision.action["type"], "noop")
+
+    def test_v11_allows_only_one_extra_action_in_continuous_pressure_episode(self):
+        planner = GreedyPressureV11Planner()
+        planner.reset(observation(time_ms=0, waiting=("old",)))
+        first = planner.act(
+            observation(time_ms=30_000, waiting=("old",), locomotives_available=3)
+        )
+        second = planner.act(
+            observation(time_ms=30_100, waiting=("old",), locomotives_available=2)
+        )
+        self.assertEqual(first.action["type"], "assign_locomotive")
+        self.assertEqual(second.action["type"], "noop")
+
+        planner.act(observation(time_ms=31_000, waiting=(), locomotives_available=2))
+        third = planner.act(
+            observation(
+                time_ms=31_100,
+                waiting=("a", "b", "c", "d"),
+                locomotives_available=2,
+            )
+        )
+        self.assertEqual(third.action["type"], "assign_locomotive")
 
     def test_passenger_returning_to_station_starts_new_wait_episode(self):
         planner = BalancedGreedyV21Planner()
