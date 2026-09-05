@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from .balanced_planner import BalancedGreedyPlanner
 from .planner import GreedyPlanner
+from .relayout_planner import BalancedGreedyV22Planner
 from .rescue_planner import BalancedGreedyV21Planner
 
 PlannerFactory = Callable[[], Any]
@@ -65,6 +66,16 @@ ALGORITHM_SPECS: tuple[AlgorithmSpec, ...] = (
         summary="在 V2 拓扑上加入公开观测可重建的候车年龄与定点救火，修复单线网络无法扩容的问题。",
         tags=("候选", "救火", "候车年龄", "可解释"),
         factory=BalancedGreedyV21Planner,
+    ),
+    AlgorithmSpec(
+        id="balanced-greedy-v2-2",
+        name="Balanced Greedy V2.2 Relayout",
+        family="启发式 + 局部搜索",
+        version="2.2-candidate",
+        status="candidate",
+        summary="在 V2.1 上加入保守的 endpoint-preserving 2-opt，只在父策略无动作且全站已覆盖时缩短现有开放线路。",
+        tags=("候选", "2-opt", "局部搜索", "可解释"),
+        factory=BalancedGreedyV22Planner,
     ),
     AlgorithmSpec(
         id="beam-search",
