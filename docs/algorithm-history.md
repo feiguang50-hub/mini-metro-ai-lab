@@ -50,6 +50,7 @@
 6. **被淘汰不等于没价值。** 某些算法可能适合作为搜索启发、局部策略、Value 特征或应急控制器。
 7. **协议升级不改写历史。** 旧结果保留原协议标签；需要新口径时重新跑并追加记录。
 8. **场景升级也不偷换赛道。** Classic、Stress、Boss 等场景必须显式版本化，禁止把不同压力分布的成绩直接拼成同一排行榜。
+9. **资格赛不反向调参。** 一旦候选算法进入冻结 holdout，参数不得根据该 holdout 结果继续调整；后续版本必须使用新的开发集和新的资格赛。
 
 ## Simulation Protocol 版本
 
@@ -167,15 +168,108 @@ Classic 证明 V2 没有明显回退，但也显示这个赛道太温和，无�
 2. **V2 的 Classic 微弱优势不能外推到高压环境。** 它在低压时更均衡，但持续扩张后平均候车、更长等待和高危持续时间都明显恶化。
 3. **Passenger Pressure 与引擎失败机制对齐。** 所有 Game Over episode 的 Peak Risk 均达到 100%；未 Game Over 的 V1 Seed 4096 最高达到 94%，说明它曾进入临界区但成功避免第二个超时乘客同时形成失败条件。
 4. **V2 暂不淘汰。** 这次失败给出了明确可修方向：高压时要更积极地集中运力、保留应急资源、减少平均主义式分流，并直接面向等待时间而不是只看线路总压力。
-5. **下一候选是 Balanced Greedy V2.1。** 它必须在 Classic 不显著退化的同时，优先改善 Stress 生存率和高危持续时间；否则不进入下一阶段搜索算法。
 
 **Balanced V2 当前状态：继续作为 `candidate`，但已确认存在高压失败模式。**
+
+## Balanced Greedy V2.1 · Pressure-aware Rescue
+
+- **ID**：`balanced-greedy-v2-1`
+- **版本**：`2.1-candidate`
+- **状态**：`candidate`
+- **实现 PR**：#10
+- **对战基线**：`greedy-v1` 与 `balanced-greedy-v2`
+- **Simulation Protocol**：`V2`
+- **核心修复**：
+  - 发现 V2 的单线扩容条件存在数学死区：只有一条线路时，`busiest_pressure == average_pressure`，所以 `busiest >= average + 1/2` 永远不能成立，V2 常常只给主线第一辆车后就不再扩容；
+  - 上游 observation 不公开 passenger `wait_ms`，V2.1 没有穿透读取 `env.mediator`，而是用公开的 `passenger_ids + station_id + time_ms` 重建“连续站台等待 episode”；
+  - 当 V2 正常层返回 `noop` 后，rescue layer 使用绝对候车压力与估计等待年龄触发机车 / 车厢投入；
+  - 保留 V2 的低压拓扑策略，不把高压救火等同于频繁重画线路。
+
+### 外部 / 上游研究约束
+
+V2.1 不是闭门调权重。上游自身的 semantic heuristic 与实验日志显示：
+
+- 稀疏、合法、简单的动作已经能非常强；
+- 当前 pinned 配置下，盲目开第二条线会把有限机车拆散，实验中第二条线显著伤害表现；
+- 强 heuristic 的主要形态长期是一条主线吃满有限车队；
+- 小规模 held-out 结果可能因生存结果双峰而严重误导，因此必须冻结参数再做更大的资格赛。
+
+这些证据让 V2.1 把重点放在“修复单线运力控制 + 候车年龄感知”，而不是继续扩大多线路复杂度。
+
+### 开发实验 A：900ms rescue cooldown
+
+仍使用旧的 5 个开发 Seeds `42, 314, 2026, 4096, 65537`。
+
+- V2：Stress 平均 77.40，Game Over 100%。
+- V2.1 初版：Stress 平均 **91.40**，Game Over 降到 **60%**。
+- 但 Seed `2026` 只有 65，而 V1 是 104。
+
+这证明“单线无法继续扩容”确实是 V2 的主要洞之一，但 900ms rescue cooldown 是没有实验依据的人为节流。
+
+### 开发实验 B：冻结前最终参数
+
+只移除上述 900ms rescue cooldown，不再改其他参数。
+
+| 指标 | Greedy V1 | Balanced V2 | Balanced V2.1 |
+| --- | ---: | ---: | ---: |
+| Classic 平均运送 | 38.40 | 38.80 | **38.80** |
+| Classic invalid rate | 55.3% | 48.5% | **34.2%** |
+| Stress 平均运送 | 93.80 | 77.40 | **106.00** |
+| Stress D/min | 7.42 | 6.89 | **7.88** |
+| Stress 平均候车 | **1.75** | 2.14 | 1.98 |
+| Stress Peak Risk | **89.8%** | 100.0% | 90.6% |
+| Stress 高危持续 | **18.1s** | 44.2s | 36.3s |
+| Stress Game Over | 60% | 100% | 60% |
+
+开发集上 V2.1 比 V1 高约 13%，Seed `2026` 从 65 恢复到 103，表明“不要人为拖慢连续运力部署”的判断成立。但这个 5-Seed 集已经参与了两轮诊断，所以**不能用它宣布冠军**。
+
+### 冻结 20-Seed holdout qualification
+
+V2.1 参数冻结后，使用 `random.Random(20260905)` 一次性生成 20 个此前完全未参与调参的 Seeds。生成后先写入 CI，再运行结果；此后这些 Seeds 不允许反向用于 V2.1 调参。
+
+#### Classic V1 holdout
+
+| 指标 | Greedy V1 | Balanced V2.1 |
+| --- | ---: | ---: |
+| 平均运送 | 39.50 | **39.80** |
+| 平均候车 | 0.32 | **0.30** |
+| Peak Risk | 25.1% | **23.6%** |
+| 平均最长等待 | 17.9s | **17.0s** |
+| Game Over | 0% | 0% |
+| invalid rate | 33.3% | **23.3%** |
+
+Classic 下 V2.1 没有出现泛化回退，并继续表现出更少的无效动作。
+
+#### Stress V1 holdout
+
+| 指标 | Greedy V1 | Balanced V2.1 |
+| --- | ---: | ---: |
+| 平均运送 | **107.30** | 103.75 |
+| D/min | **7.90** | 7.77 |
+| 平均候车 | 1.95 | 1.95 |
+| Peak Risk | **94.2%** | 97.2% |
+| 平均最长等待 | **48.8s** | 49.3s |
+| 高危持续 | **28.0s** | 33.0s |
+| Game Over | 65% | 65% |
+| invalid rate | 39.6% | **32.2%** |
+
+逐 Seed paired 结果为 **V2.1 8 胜 / 11 负 / 1 平**；平均 deliveries 差值 `-3.55`，中位差值 `-1`。因此开发集上 106.0 的领先**没有在冻结 holdout 中复现**。
+
+### V2.1 结论
+
+1. **V2.1 是一个真实修复，不是伪进步。** 它修复了 V2 的单线运力死区，把开发集 Stress 从 77.4 拉回 106.0，并在 Classic / holdout 都显著降低 invalid rate。
+2. **V2.1 不是新冠军。** 冻结 Stress holdout 中 V1 仍以 107.30 对 103.75 领先，且风险 / 高危时间略优。
+3. **默认算法继续保持 Greedy V1。** V2.1 以 `candidate` 身份进入算法库，供后续搜索、路线优化和观战比较使用。
+4. **禁止继续针对这 20 个 holdout Seeds 调 V2.1。** 下一版本若继续开发，必须使用新的 development seeds，并预先冻结新的 qualification set。
+5. **下一高价值方向不是继续拧 rescue 阈值。** 上游实验显示 route re-layout / 2-opt 类线路重排存在明显结构性 headroom，适合进入下一代候选。
+
+> V2.1 的价值在于把“为什么 V2 会死”变成了可复现工程事实，也建立了开发集 / 冻结资格赛分离的算法实验纪律。
 
 > 历史记录只追加和修正事实，不因算法被淘汰而删除。
 
 ## 待进入 Arena
 
-- Balanced Greedy V2.1 · pressure-aware rescue
+- Route Re-layout / 2-opt candidate
 - Boss Seeds
 - Beam Search
 - Model Predictive Control (MPC)
