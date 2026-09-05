@@ -36,10 +36,21 @@ jobs:
       - name: Unit + engine smoke tests
         run: .venv/bin/python -m unittest discover -s tests -v
 
-      - name: Candidate benchmark
+      - name: Classic candidate benchmark
         if: github.event_name == 'pull_request'
         run: |
           .venv/bin/mini-metro-arena \
+            --scenario classic-v1 \
+            --algorithms greedy-v1 balanced-greedy-v2 \
+            --seeds 42 314 2026 4096 65537 \
+            --minutes 15 \
+            --no-save
+
+      - name: Stress candidate benchmark
+        if: github.event_name == 'pull_request'
+        run: |
+          .venv/bin/mini-metro-arena \
+            --scenario stress-v1 \
             --algorithms greedy-v1 balanced-greedy-v2 \
             --seeds 42 314 2026 4096 65537 \
             --minutes 15 \
@@ -96,6 +107,7 @@ jobs:
           assert battle['status'] == 'finished', battle
           assert battle['left']['game']['time_ms'] == battle['right']['game']['time_ms'] == 300
           assert battle['leader'] == 'tie' and battle['delivery_margin'] == 0
+          assert battle['progression']['scenario_id'] if 'progression' in battle else True
           session = battle['session_id']
           post('restart')
           with urlopen(base + '/api/battle/state', timeout=5) as response:
