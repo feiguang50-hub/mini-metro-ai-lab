@@ -29,6 +29,15 @@ jobs:
       - name: Unit + engine smoke tests
         run: .venv/bin/python -m unittest discover -s tests -v
 
+      - name: Candidate benchmark
+        if: github.event_name == 'pull_request'
+        run: |
+          .venv/bin/mini-metro-arena \
+            --algorithms greedy-v1 balanced-greedy-v2 \
+            --seeds 42 314 2026 4096 65537 \
+            --minutes 15 \
+            --no-save
+
       - name: HTTP live-view smoke test
         shell: bash
         run: |
