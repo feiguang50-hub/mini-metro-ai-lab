@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from .balanced_planner import BalancedGreedyPlanner
 from .planner import GreedyPlanner
-from .rescue_planner import BalancedGreedyV21Planner
+from .rescue_planner import BalancedGreedyV21Planner, GreedyPressureV11Planner
 
 PlannerFactory = Callable[[], Any]
 
@@ -45,6 +45,16 @@ ALGORITHM_SPECS: tuple[AlgorithmSpec, ...] = (
         tags=("低计算量", "可解释", "基线"),
         factory=GreedyPlanner,
         default=True,
+    ),
+    AlgorithmSpec(
+        id="greedy-v1-1-pressure",
+        name="Greedy V1.1 Pressure Rescue",
+        family="启发式",
+        version="1.1-candidate",
+        status="candidate",
+        summary="保持 V1 的线路拓扑与插站逻辑，只叠加公开观测可重建的候车年龄救火层。",
+        tags=("候选", "V1 拓扑", "救火", "候车年龄", "可解释"),
+        factory=GreedyPressureV11Planner,
     ),
     AlgorithmSpec(
         id="balanced-greedy-v2",
