@@ -10,6 +10,7 @@ from .algorithms import available_algorithm_ids, create_planner, get_algorithm_s
 from .config import ENGINE_COMMIT, TICK_MS
 from .engine import _jsonable, _load_engine
 from .planner import Decision
+from .simulation import SIMULATION_PROTOCOL_VERSION, advance_fixed_dt
 from .viewer_scenario import (
     advance_timed_station_progression,
     configure_timed_station_progression,
@@ -103,12 +104,15 @@ class BattleRuntime:
                 for side, decision in zip(self._sides, decisions):
                     if decision is None:
                         continue
-                    obs, _, done, info = side["env"].step(decision.action, dt_ms=self._config["dt_ms"])
-                    action_ok = bool(info.get("action_ok", False))
-                    if not action_ok and not done:
-                        # The pinned engine does not tick time on a rejected action.
-                        # Spend this round as a noop so neither side gains extra time.
-                        obs, _, done, _ = side["env"].step({"type": "noop"}, dt_ms=self._config["dt_ms"])
+                    outcome = advance_fixed_dt(
+                        side["env"],
+                        side["obs"],
+                        decision.action,
+                        dt_ms=self._config["dt_ms"],
+                    )
+                    obs = outcome.observation
+                    done = outcome.done
+                    action_ok = outcome.action_ok
                     if advance_timed_station_progression(side["env"]):
                         obs = side["env"].observe()
                     side.update(obs=obs, done=bool(done or obs["structured"].get("is_game_over")),
@@ -135,6 +139,7 @@ class BattleRuntime:
     def snapshot(self):
         with self._lock:
             result = dict(session_id=self._session, status=self._status, error=self._error,
+                          simulation_protocol=SIMULATION_PROTOCOL_VERSION,
                           config=dict(self._config) if self._config else None, round=self._round,
                           elapsed_ms=self._round * self._config["dt_ms"] if self._config else 0)
             if not self._sides:
