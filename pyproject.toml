@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mini-metro-lab"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local Mini Metro algorithm lab with a Chinese live viewer"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -14,6 +14,7 @@ authors = [{name = "Mini Metro Lab contributors"}]
 [project.scripts]
 mini-metro-lab = "metro_lab.server:main"
 mini-metro-arena = "metro_lab.arena:main"
+mini-metro-battle = "metro_lab.battle:main"
 
 [tool.setuptools]
 packages = ["metro_lab"]
