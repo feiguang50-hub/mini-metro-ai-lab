@@ -8,20 +8,23 @@ from .rescue_planner import BalancedGreedyV21Planner
 
 
 class BalancedGreedyV22Planner(BalancedGreedyV21Planner):
-    """V2.2 candidate: V2.1 plus conservative geometry-only 2-opt relayout.
+    """V2.2 candidate: V2.1 plus evidence-gated 2-opt relayout.
 
-    The relayout layer runs only after V2.1 has declined to act and only when
-    every active station is already served. It preserves an open line's two
-    endpoints and station set, reverses one internal segment, and accepts the
-    move only when Euclidean route length strictly decreases.
+    The pinned upstream's own large-sample experiments found that rebuilding for
+    tiny geometric gains thrashes, while a roughly 15-20% route-length saving
+    is the useful regime. We therefore compute a complete 2-opt local optimum
+    in memory and submit one atomic ``replace_path`` only when the whole target
+    is more than 20% shorter than the live route.
 
-    No rollout, hidden engine state, future RNG, or passenger wait clock is used.
-    A proposed transition is remembered by its before/after signature so an
-    engine-rejected move is not hammered every tick.
+    No rollout, hidden engine state, future RNG, or private passenger wait clock
+    is used. The first station remains anchored (matching the upstream probe),
+    while the other endpoint may change if that is part of the shorter order.
     """
 
     name = "Balanced Greedy V2.2 Relayout"
     EPSILON = 1e-6
+    MIN_STATIONS = 5
+    MIN_SAVING_RATIO = 0.20
 
     def __init__(self) -> None:
         super().__init__()
@@ -47,55 +50,65 @@ class BalancedGreedyV22Planner(BalancedGreedyV21Planner):
         )
 
     @classmethod
-    def _best_two_opt_for_path(
+    def _two_opt_target(
         cls,
         path: dict[str, Any],
         station_by_id: dict[str, dict[str, Any]],
-    ) -> tuple[float, list[str]] | None:
-        """Return the best endpoint-preserving internal 2-opt move.
+    ) -> tuple[float, float, list[str]] | None:
+        """Return ``(saving_ratio, improvement_px, locally_optimal_route)``.
 
-        This is intentionally narrower than a general TSP 2-opt neighborhood:
-        open-line endpoints stay fixed so the candidate does not silently alter
-        which stations have terminal service characteristics.
+        This mirrors the upstream experiment's repeated 2-opt probe rather than
+        acting on the first tiny improvement. Index 0 stays anchored; the tail
+        may move. The target is computed without mutating the live engine.
         """
         if bool(path.get("is_looped", False)):
             return None
         route = [str(station_id) for station_id in path.get("station_ids", ())]
-        if len(route) < 4 or len(set(route)) != len(route):
+        if len(route) < cls.MIN_STATIONS or len(set(route)) != len(route):
             return None
 
         current_length = cls._route_length(route, station_by_id)
-        if current_length == inf:
+        if current_length in (0.0, inf):
             return None
 
-        best_improvement = cls.EPSILON
-        best_route: list[str] | None = None
+        best = list(route)
+        best_length = current_length
+        improved = True
+        while improved:
+            improved = False
+            # Same neighborhood as the upstream probe: keep the first station
+            # anchored, reverse any later segment, including one ending at tail.
+            for i in range(len(best) - 1):
+                for j in range(i + 2, len(best)):
+                    candidate = [
+                        *best[: i + 1],
+                        *reversed(best[i + 1 : j + 1]),
+                        *best[j + 1 :],
+                    ]
+                    value = cls._route_length(candidate, station_by_id)
+                    if value < best_length - cls.EPSILON:
+                        best = candidate
+                        best_length = value
+                        improved = True
 
-        # Keep index 0 and index n-1 fixed. Reversing route[i:j+1] is the
-        # standard 2-opt reconnection for the two boundary edges around it.
-        for i in range(1, len(route) - 2):
-            for j in range(i + 1, len(route) - 1):
-                candidate = [*route[:i], *reversed(route[i : j + 1]), *route[j + 1 :]]
-                improvement = current_length - cls._route_length(candidate, station_by_id)
-                if improvement > best_improvement:
-                    best_improvement = improvement
-                    best_route = candidate
-
-        if best_route is None:
+        improvement = current_length - best_length
+        if improvement <= cls.EPSILON:
             return None
-        return best_improvement, best_route
+        return improvement / current_length, improvement, best
 
     def _best_relayout(
         self,
         paths: list[dict[str, Any]],
         station_by_id: dict[str, dict[str, Any]],
-    ) -> tuple[float, int, list[str]] | None:
-        best: tuple[float, int, list[str]] | None = None
+    ) -> tuple[float, float, int, list[str]] | None:
+        best: tuple[float, float, int, list[str]] | None = None
         for path_index, path in enumerate(paths):
-            candidate = self._best_two_opt_for_path(path, station_by_id)
+            candidate = self._two_opt_target(path, station_by_id)
             if candidate is None:
                 continue
-            improvement, route = candidate
+            saving_ratio, improvement, route = candidate
+            if saving_ratio <= self.MIN_SAVING_RATIO:
+                continue
             signature = (
                 str(path.get("id", path_index)),
                 tuple(str(item) for item in path.get("station_ids", ())),
@@ -103,8 +116,12 @@ class BalancedGreedyV22Planner(BalancedGreedyV21Planner):
             )
             if signature in self._attempted_relayouts:
                 continue
-            item = (improvement, path_index, route)
-            if best is None or improvement > best[0] + self.EPSILON:
+            item = (saving_ratio, improvement, path_index, route)
+            if best is None or (saving_ratio, improvement, -path_index) > (
+                best[0],
+                best[1],
+                -best[2],
+            ):
                 best = item
         return best
 
@@ -132,7 +149,7 @@ class BalancedGreedyV22Planner(BalancedGreedyV21Planner):
         if best is None:
             return decision
 
-        improvement, path_index, route_ids = best
+        saving_ratio, improvement, path_index, route_ids = best
         station_index = {str(station["id"]): idx for idx, station in enumerate(stations)}
         if any(station_id not in station_index for station_id in route_ids):
             return decision
@@ -153,13 +170,15 @@ class BalancedGreedyV22Planner(BalancedGreedyV21Planner):
                 "path_index": path_index,
                 "stations": route_indices,
                 "loop": False,
-                # Lab-only namespaced diagnostics. The pinned engine ignores
-                # unrelated payload keys; the probe reads these before submit.
                 "_lab_kind": "relayout-2opt",
                 "_lab_improvement_px": round(float(improvement), 3),
+                "_lab_saving_ratio": round(float(saving_ratio), 6),
                 "_lab_before_route": before_route_ids,
                 "_lab_after_route": list(route_ids),
             },
-            "2-opt 缩短线路",
-            f"第 {path_index + 1} 条线路保持端点不变，预计减少约 {improvement:.1f} 像素绕行。",
+            "2-opt 重排线路",
+            (
+                f"第 {path_index + 1} 条线路可整体缩短 {saving_ratio:.1%} "
+                f"（约 {improvement:.1f}px），超过 20% 研究门槛。"
+            ),
         )
