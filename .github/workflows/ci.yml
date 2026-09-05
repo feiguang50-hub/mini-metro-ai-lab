@@ -31,19 +31,19 @@ jobs:
         run: ./scripts/bootstrap.sh
 
       - name: Compile
-        run: .venv/bin/python -m compileall -q metro_lab tests scripts/probe_rescue.py
+        run: .venv/bin/python -m compileall -q metro_lab tests
 
       - name: Unit + engine smoke tests
         run: .venv/bin/python -m unittest discover -s tests -v
 
-      # Rotated development set, generated before the V2.2/V1.1 results with
-      # random.Random(20260906). It is diagnostic, not a qualification set.
+      # Small development set only. Archived algorithms keep their reproducible
+      # qualification workflow but do not consume long-run CI on unrelated PRs.
       - name: Classic candidate benchmark
         if: github.event_name == 'pull_request'
         run: |
           .venv/bin/mini-metro-arena \
             --scenario classic-v1 \
-            --algorithms greedy-v1 greedy-v1-1-pressure balanced-greedy-v2-1 \
+            --algorithms greedy-v1 balanced-greedy-v2-1 \
             --seeds 1907374266 805162878 657531977 978077348 1255654432 \
             --minutes 15 \
             --no-save
@@ -53,21 +53,10 @@ jobs:
         run: |
           .venv/bin/mini-metro-arena \
             --scenario stress-v1 \
-            --algorithms greedy-v1 greedy-v1-1-pressure balanced-greedy-v2-1 \
+            --algorithms greedy-v1 balanced-greedy-v2-1 \
             --seeds 1907374266 805162878 657531977 978077348 1255654432 \
             --minutes 15 \
             --no-save
-
-      # These are already-public development seeds selected only because they
-      # diverged (+6 / -5) in the first V1.1 run. This is mechanism diagnosis,
-      # not a qualification gate and does not expose any frozen holdout set.
-      - name: Pressure rescue diagnostic probe
-        if: github.event_name == 'pull_request'
-        run: |
-          .venv/bin/python scripts/probe_rescue.py \
-            --scenario stress-v1 \
-            --seeds 805162878 657531977 \
-            --minutes 15
 
       - name: HTTP live-view smoke test
         shell: bash
