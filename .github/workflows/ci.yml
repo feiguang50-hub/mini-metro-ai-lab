@@ -35,7 +35,7 @@ jobs:
           .venv/bin/mini-metro-arena \
             --algorithms greedy-v1 balanced-greedy-v2 \
             --seeds 42 314 2026 4096 65537 \
-            --minutes 5 \
+            --minutes 15 \
             --no-save
 
       - name: HTTP live-view smoke test
