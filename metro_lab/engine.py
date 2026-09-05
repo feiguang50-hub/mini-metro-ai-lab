@@ -18,6 +18,8 @@ from .algorithms import (
 )
 from .config import ENGINE_COMMIT, ENGINE_ROOT, ENGINE_SRC, TICK_MS
 from .planner import Decision
+from .pressure import passenger_pressure
+from .simulation import advance_fixed_dt
 from .viewer_scenario import (
     advance_timed_station_progression,
     configure_timed_station_progression,
@@ -125,11 +127,17 @@ class LabRuntime:
                     decision = self._planner.act(self._observation)
                     self._last_decision = decision
                     dt = TICK_MS * self._speed
-                    obs, _reward, _done, info = self._env.step(decision.action, dt_ms=dt)
+                    outcome = advance_fixed_dt(
+                        self._env,
+                        self._observation,
+                        decision.action,
+                        dt_ms=dt,
+                    )
+                    obs = outcome.observation
                     if advance_timed_station_progression(self._env):
                         obs = self._env.observe()
                     self._observation = obs
-                    self._action_ok = bool(info.get("action_ok", False))
+                    self._action_ok = outcome.action_ok
                     self._record(decision, self._action_ok, int(obs["structured"]["time_ms"]))
             elapsed = time.monotonic() - started
             self._stop.wait(max(0.01, TICK_MS / 1000 - elapsed))
@@ -170,10 +178,7 @@ class LabRuntime:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             s = _jsonable(self._observation["structured"])
-            stations = s.get("stations", [])
-            threshold = int(getattr(self._env.mediator, "overdue_passenger_threshold", 10))
-            max_waiting = max((int(st.get("passenger_count", 0)) for st in stations), default=0)
-            risk = min(100, round(max_waiting / max(1, threshold) * 100))
+            pressure = passenger_pressure(self._env)
             spec = get_algorithm_spec(self._algorithm_id)
             payload = {
                 "engine": {
@@ -191,8 +196,13 @@ class LabRuntime:
                     "algorithm_status": spec.status,
                     "algorithm_version": spec.version,
                     "action_ok": self._action_ok,
-                    "risk": risk,
-                    "overdue_threshold": threshold,
+                    "risk": pressure.risk_pct,
+                    "overdue_threshold": pressure.overdue_passenger_threshold,
+                    "overdue_passengers": pressure.overdue_passengers,
+                    "at_risk_passengers": pressure.at_risk_passengers,
+                    "max_wait_ms": pressure.max_wait_ms,
+                    "passenger_max_wait_time_ms": pressure.passenger_max_wait_time_ms,
+                    "at_risk_wait_ms": pressure.at_risk_wait_ms,
                     **timed_station_status(self._env),
                 },
                 "algorithms": self.algorithm_library(),
