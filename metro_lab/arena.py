@@ -10,6 +10,8 @@ from .algorithms import DEFAULT_ALGORITHM_ID, available_algorithm_ids, create_pl
 from .config import ENGINE_COMMIT, TICK_MS
 from .engine import _jsonable, _load_engine
 from .experiments import DEFAULT_EXPERIMENT_ROOT, ExperimentArtifacts, ReplayWriter
+from .metrics import EpisodeTelemetry
+from .simulation import SIMULATION_PROTOCOL_VERSION, advance_fixed_dt
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,19 @@ class EpisodeResult:
     steps: int
     game_over: bool
     invalid_actions: int
+    protocol_version: int = SIMULATION_PROTOCOL_VERSION
+    deliveries_per_minute: float = 0.0
+    average_waiting_passengers: float = 0.0
+    waiting_passenger_seconds: float = 0.0
+    peak_network_waiting: int = 0
+    peak_station_queue: int = 0
+    average_fleet_load_pct: float = 0.0
+    max_paths: int = 0
+    max_stations: int = 0
+    max_locomotives_assigned: int = 0
+    max_carriages_assigned: int = 0
+    non_noop_actions: int = 0
+    topology_actions: int = 0
 
 
 @dataclass(frozen=True)
@@ -34,6 +49,14 @@ class AlgorithmSummary:
     max_deliveries: int
     game_over_rate: float
     invalid_actions: int
+    mean_survival_minutes: float = 0.0
+    mean_deliveries_per_minute: float = 0.0
+    mean_waiting_passengers: float = 0.0
+    mean_peak_network_waiting: float = 0.0
+    mean_peak_station_queue: float = 0.0
+    mean_fleet_load_pct: float = 0.0
+    non_noop_actions: int = 0
+    invalid_action_rate: float = 0.0
 
 
 def _record_frame(
@@ -78,6 +101,8 @@ def run_episode(
     planner = create_planner(algorithm)
     planner.reset(observation)
 
+    telemetry = EpisodeTelemetry()
+    telemetry.observe_initial(observation)
     max_steps = max(1, int(minutes * 60_000 / dt_ms))
     invalid_actions = 0
     done = False
@@ -93,6 +118,7 @@ def run_episode(
                 "dt_ms": int(dt_ms),
                 "minutes": float(minutes),
                 "sample_every_ms": int(replay_sample_ms),
+                "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
             },
         ).start()
         from .planner import Decision
@@ -108,9 +134,20 @@ def run_episode(
     try:
         for _ in range(max_steps):
             decision = planner.act(observation)
-            observation, _reward, done, info = env.step(decision.action, dt_ms=dt_ms)
-            action_ok = bool(info.get("action_ok", False))
             action_type = decision.action.get("type")
+            telemetry.record_action(action_type)
+
+            outcome = advance_fixed_dt(
+                env,
+                observation,
+                decision.action,
+                dt_ms=dt_ms,
+            )
+            observation = outcome.observation
+            done = outcome.done
+            action_ok = outcome.action_ok
+            telemetry.record_transition(observation, elapsed_ms=outcome.elapsed_ms)
+
             if action_type != "noop" and not action_ok:
                 invalid_actions += 1
 
@@ -136,15 +173,32 @@ def run_episode(
             recorder.close()
 
     structured = observation["structured"]
+    simulated_ms = int(structured.get("time_ms", 0))
+    deliveries = int(structured.get("deliveries", 0))
+    deliveries_per_minute = (
+        deliveries / (simulated_ms / 60_000) if simulated_ms > 0 else 0.0
+    )
     return EpisodeResult(
         algorithm=algorithm,
         seed=int(seed),
-        deliveries=int(structured.get("deliveries", 0)),
+        deliveries=deliveries,
         line_credits=int(structured.get("line_credits", 0)),
-        simulated_ms=int(structured.get("time_ms", 0)),
+        simulated_ms=simulated_ms,
         steps=int(structured.get("steps", 0)),
         game_over=bool(structured.get("is_game_over", done)),
         invalid_actions=invalid_actions,
+        deliveries_per_minute=round(deliveries_per_minute, 3),
+        average_waiting_passengers=round(telemetry.average_waiting_passengers, 3),
+        waiting_passenger_seconds=round(telemetry.waiting_passenger_seconds, 2),
+        peak_network_waiting=telemetry.peak_network_waiting,
+        peak_station_queue=telemetry.peak_station_queue,
+        average_fleet_load_pct=round(telemetry.average_fleet_load_pct, 2),
+        max_paths=telemetry.max_paths,
+        max_stations=telemetry.max_stations,
+        max_locomotives_assigned=telemetry.max_locomotives_assigned,
+        max_carriages_assigned=telemetry.max_carriages_assigned,
+        non_noop_actions=telemetry.non_noop_actions,
+        topology_actions=telemetry.topology_actions,
     )
 
 
@@ -156,6 +210,8 @@ def summarize(results: list[EpisodeResult]) -> list[AlgorithmSummary]:
     summaries: list[AlgorithmSummary] = []
     for algorithm, episodes in grouped.items():
         scores = [episode.deliveries for episode in episodes]
+        non_noop_actions = sum(episode.non_noop_actions for episode in episodes)
+        invalid_actions = sum(episode.invalid_actions for episode in episodes)
         summaries.append(
             AlgorithmSummary(
                 algorithm=algorithm,
@@ -165,10 +221,41 @@ def summarize(results: list[EpisodeResult]) -> list[AlgorithmSummary]:
                 min_deliveries=min(scores),
                 max_deliveries=max(scores),
                 game_over_rate=round(sum(episode.game_over for episode in episodes) / len(episodes), 3),
-                invalid_actions=sum(episode.invalid_actions for episode in episodes),
+                invalid_actions=invalid_actions,
+                mean_survival_minutes=round(
+                    statistics.fmean(episode.simulated_ms / 60_000 for episode in episodes), 3
+                ),
+                mean_deliveries_per_minute=round(
+                    statistics.fmean(episode.deliveries_per_minute for episode in episodes), 3
+                ),
+                mean_waiting_passengers=round(
+                    statistics.fmean(episode.average_waiting_passengers for episode in episodes), 3
+                ),
+                mean_peak_network_waiting=round(
+                    statistics.fmean(episode.peak_network_waiting for episode in episodes), 2
+                ),
+                mean_peak_station_queue=round(
+                    statistics.fmean(episode.peak_station_queue for episode in episodes), 2
+                ),
+                mean_fleet_load_pct=round(
+                    statistics.fmean(episode.average_fleet_load_pct for episode in episodes), 2
+                ),
+                non_noop_actions=non_noop_actions,
+                invalid_action_rate=round(
+                    invalid_actions / non_noop_actions if non_noop_actions else 0.0,
+                    4,
+                ),
             )
         )
-    return sorted(summaries, key=lambda item: (-item.mean_deliveries, item.algorithm))
+    return sorted(
+        summaries,
+        key=lambda item: (
+            -item.mean_deliveries,
+            item.game_over_rate,
+            item.mean_waiting_passengers,
+            item.algorithm,
+        ),
+    )
 
 
 def run_suite(
@@ -233,23 +320,32 @@ def _print_human(
     summaries: list[AlgorithmSummary],
     artifacts: ExperimentArtifacts | None = None,
 ) -> None:
-    print("\n🚇 Mini Metro AI Arena")
-    print("=" * 72)
-    print(f"{'算法':16} {'Seed':>8} {'运送':>8} {'时间':>10} {'结束':>6} {'无效动作':>8}")
+    print("\n🚇 Mini Metro AI Arena · Protocol V2")
+    print("=" * 96)
+    print(
+        f"{'算法':18} {'Seed':>8} {'运送':>6} {'D/min':>7} {'均候车':>8} "
+        f"{'峰值站':>7} {'时间':>8} {'无效':>6}"
+    )
     for item in results:
         print(
-            f"{item.algorithm:16} {item.seed:>8} {item.deliveries:>8} "
-            f"{item.simulated_ms / 60_000:>8.2f}m "
-            f"{'是' if item.game_over else '否':>6} {item.invalid_actions:>8}"
+            f"{item.algorithm:18} {item.seed:>8} {item.deliveries:>6} "
+            f"{item.deliveries_per_minute:>7.2f} {item.average_waiting_passengers:>8.2f} "
+            f"{item.peak_station_queue:>7} {item.simulated_ms / 60_000:>6.2f}m "
+            f"{item.invalid_actions:>6}"
         )
 
-    print("\n排行榜")
-    print("-" * 72)
-    print(f"{'算法':16} {'均值':>8} {'中位数':>8} {'最低':>8} {'最高':>8} {'结束率':>8}")
+    print("\n排行榜（主排序仍以运送量为准，健康指标用于解释胜负）")
+    print("-" * 96)
+    print(
+        f"{'算法':18} {'均值':>7} {'D/min':>7} {'均候车':>8} {'峰值站':>7} "
+        f"{'载客率':>8} {'结束率':>7} {'无效率':>7}"
+    )
     for item in summaries:
         print(
-            f"{item.algorithm:16} {item.mean_deliveries:>8.2f} {item.median_deliveries:>8.2f} "
-            f"{item.min_deliveries:>8} {item.max_deliveries:>8} {item.game_over_rate:>7.0%}"
+            f"{item.algorithm:18} {item.mean_deliveries:>7.2f} "
+            f"{item.mean_deliveries_per_minute:>7.2f} {item.mean_waiting_passengers:>8.2f} "
+            f"{item.mean_peak_station_queue:>7.2f} {item.mean_fleet_load_pct:>7.1f}% "
+            f"{item.game_over_rate:>6.0%} {item.invalid_action_rate:>6.1%}"
         )
     if artifacts is not None:
         print(f"\n📼 实验已保存：{artifacts.run_dir}")
@@ -299,6 +395,7 @@ def main() -> None:
             json.dumps(
                 {
                     "engine_commit": ENGINE_COMMIT,
+                    "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
                     "artifacts_dir": str(artifacts.run_dir) if artifacts is not None else None,
                     "results": [asdict(item) for item in results],
                     "summaries": [asdict(item) for item in summaries],

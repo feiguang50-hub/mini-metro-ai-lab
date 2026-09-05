@@ -6,14 +6,15 @@
 
 - 🇨🇳 **全中文观战界面**：浏览器实时看线路、车站、列车和客流变化。
 - 🧠 **可选择算法库**：已经实现的算法可以直接切换；规划中的算法显示开发状态。
-- 🏁 **固定 Seed Arena**：同 Seeds、同步长、同预算比较算法。
+- 🏁 **固定 Seed Arena**：同 Seeds、同步长、同预算、同 Simulation Protocol 比较算法。
 - ⚔️ **同 Seed 同步 Battle**：两个独立环境逐步同步推进，直接进行算法对战。
+- 📊 **Arena V2 健康指标**：不仅看运送量，还测候车、拥堵、载客率和动作稳定性。
 - 📼 **实验档案与回放**：保存配置、结果、CSV、摘要和压缩回放流。
 - 👀 **沉浸观战**：地图是主角，AI 信息可以隐藏。
 - 🔒 **完全本地运行**：默认只监听 `127.0.0.1`，不需要 OpenAI API，也不上传游戏状态。
 - 🧹 **干净安装**：依赖只在项目目录的 `.venv` 和 `.vendor` 中。
 
-> 当前版本：**0.6.0 / Synchronized Battle + Balanced Greedy V2 Candidate**。
+> 当前版本：**0.7.0 / Arena V2 + Simulation Protocol V2**。
 
 ## 30 秒启动
 
@@ -54,7 +55,7 @@
 
 ### Balanced Greedy V2 首战
 
-固定 Seeds `42, 314, 2026, 4096, 65537`，每局 15 分钟：
+最初的 0.6.x / Protocol V1 实验使用固定 Seeds `42, 314, 2026, 4096, 65537`，每局名义预算 15 分钟：
 
 | 指标 | Greedy V1 | Balanced V2 |
 | --- | ---: | ---: |
@@ -64,7 +65,7 @@
 | Game Over 率 | 0% | 0% |
 | 无效动作 | 21 | **16** |
 
-V2 平均只提高约 1%，还不足以晋升冠军，所以 **V1 保持默认 baseline，V2 只作为 candidate 开放**。完整记录见 [`docs/algorithm-history.md`](docs/algorithm-history.md)。
+V2 平均只提高约 1%，还不足以晋升冠军，所以 **V1 保持默认 baseline，V2 只作为 candidate 开放**。完整版本化记录见 [`docs/algorithm-history.md`](docs/algorithm-history.md)。
 
 ## 👀 观战模式
 
@@ -72,6 +73,7 @@ V2 平均只提高约 1%，还不足以晋升冠军，所以 **V1 保持默认 b
 
 - **客流**：显示 / 隐藏站台乘客目标形状。
 - **沉浸观战**：隐藏 AI 侧栏，让地图占满可用宽度。
+- **动态站点**：浏览器观战从固定 Seed 的站点池中按模拟时间逐步开放新站，避免画面长期停在少量站点。
 
 底部控制：
 
@@ -82,7 +84,7 @@ V2 平均只提高约 1%，还不足以晋升冠军，所以 **V1 保持默认 b
 
 按 `Ctrl+C` 关闭服务。
 
-## 🏁 Arena
+## 🏁 Arena V2
 
 第一次运行过 `./run.sh` 后：
 
@@ -106,11 +108,38 @@ V2 平均只提高约 1%，还不足以晋升冠军，所以 **V1 保持默认 b
 .venv/bin/mini-metro-arena --no-save
 ```
 
-当前排行榜指标包括平均值、中位数、最低 / 最高运送量、Game Over 率和无效动作数。
+Arena V2 记录的不再只有最终分数：
+
+- 运送量、`deliveries/min`
+- 实际生存 / 模拟时间
+- **时间加权平均候车人数**
+- passenger waiting seconds
+- 全网候车峰值
+- 单站最大候车队列
+- **时间加权车队载客率**
+- 最大线路、站点、机车、车厢规模
+- 非 `noop` 动作数、拓扑修改数
+- 无效动作数与 invalid action rate
+- Game Over 率
+
+排行榜仍以运送量作为主排序，不偷偷发明一个难解释的“综合神分”。健康指标用于解释算法为什么赢、网络是不是已经变成毛线团，以及同分方案谁更稳。
+
+### Simulation Protocol V2
+
+固定步长公平性从 0.7.0 起成为显式协议：
+
+1. planner 每轮提交一个动作；
+2. 若动作有效，正常推进固定 `dt`；
+3. 若动作被底层引擎拒绝，仍记录为 invalid，但随后用 `noop` 消耗这一轮相同的 `dt`；
+4. 除非 Game Over，固定 15 分钟预算就必须真的经历完整 15 分钟城市时间。
+
+这是因为固定的上游引擎有一个重要语义：**被拒绝的动作本身不走时**。Protocol V1 的 Arena 因此可能出现 14.98 分钟这种小偏差。旧结果不会被删除或改写，只会保留 `Protocol V1` 标签；新实验默认使用 V2。
+
+Arena、CLI Battle 和浏览器 Battle 从 0.7.0 起共用同一个 `advance_fixed_dt()` 实现，避免三个入口悄悄长出三套比赛规则。
 
 ## ⚔️ 同 Seed 同步 Battle
 
-Battle 不是把两个算法顺序跑一遍，而是创建两个**完全独立**的 `MiniMetroEnv`，使用相同 Seed、相同 `dt_ms` 和相同预算逐轮同步推进。一侧提前 Game Over 后会冻结，另一侧继续到结束或预算耗尽。
+Battle 不是把两个算法顺序跑一遍，而是创建两个**完全独立**的 `MiniMetroEnv`，使用相同 Seed、相同 `dt_ms`、相同预算和相同 Simulation Protocol 逐轮同步推进。一侧提前 Game Over 后会冻结，另一侧继续到结束或预算耗尽。
 
 ```bash
 .venv/bin/mini-metro-battle \
@@ -131,6 +160,49 @@ Battle 不是把两个算法顺序跑一遍，而是创建两个**完全独立**
 
 公平性有真实引擎回归测试：**同算法 + 同 Seed 必须得到完全相同的双方结果并严格平局**。这用来防止共享随机状态或执行顺序污染制造“假优势”。
 
+## 🌆 Benchmark 场景与浏览器场景
+
+目前有意保留两种不同用途：
+
+- **Classic benchmark**：Arena / CLI Battle 沿用上游原始站点推进逻辑，保证旧实验可追溯、可版本化比较。
+- **Viewer timed progression**：单算法和浏览器双算法观战从开局 3 站开始，每 45 秒模拟时间增加一个新站，最多 20 站，让观战过程持续产生新问题。
+
+两者不会偷偷混用。0.7.0 的新指标还揭示：Classic 15 分钟在当前固定 Seeds 上压力偏低，单站峰值只有约 1。后续会新增**显式版本化的 Stress Scenario**，而不是直接篡改 Classic 规则，让更强算法真正有地方拉开差距。
+
+## 🌐 浏览器双算法 Battle
+
+启动 `./run.sh` 后，从观战室点击「进入双算法对战」，或打开本地 `/battle.html`。
+
+- 从算法库分别选择左右算法；尚未实现的算法不可选。
+- 左右共享相同 Seed、步长、预算和动态站点时间表。
+- 顶部显示运送比分、领先人数、对战状态；每侧显示拥堵风险、运行状态和最新决策。
+- 「开始新对战」应用表单配置；「原配置重开」使用上次已提交配置。
+- 服务端逐轮推进两个独立环境，并原子发布同一轮双方快照。浏览器刷新和多开页面不会增加模拟步数。
+- 一侧 Game Over 后冻结，另一侧继续至共同预算；双方均结束则提前停止。
+- 当前服务共用一个 Battle 会话；其他浏览器开始新局会替换该会话。单算法会话独立运行。
+
+API：
+
+- `GET /api/battle/state`
+- `POST /api/battle/control`
+
+开始示例：
+
+```json
+{
+  "command": "start",
+  "value": {
+    "left": "greedy-v1",
+    "right": "balanced-greedy-v2",
+    "seed": 42,
+    "dt_ms": 100,
+    "budget_ms": 900000
+  }
+}
+```
+
+Seed 范围 `0..2147483647`、步长 `10..1000 ms`、预算 `100..3600000 ms`，预算须为步长的整数倍。
+
 ## 📼 实验档案与回放
 
 Arena 默认把实验保存到：
@@ -150,13 +222,13 @@ replays/
   *.jsonl.gz
 ```
 
-回放流记录：
+从 Protocol V2 起，实验配置、结果和 Replay header 都显式记录 `simulation_protocol`。回放流还记录：
 
-- 开局状态；
-- 周期性结构化状态采样；
-- 所有非 `noop` 决策；
-- Game Over 最终状态；
-- 算法、Seed、步长、时间预算、引擎提交。
+- 开局状态
+- 周期性结构化状态采样
+- 所有非 `noop` 决策
+- Game Over 最终状态
+- 算法、Seed、步长、时间预算、引擎提交
 
 常用选项：
 
@@ -170,11 +242,12 @@ replays/
 
 ## 实验纪律
 
-- 同轮比较必须使用相同 Seeds、步长和时间预算；
+- 同轮比较必须使用相同 Seeds、步长、时间预算、场景和 Simulation Protocol；
 - 小样本只能算候选证据；
 - 新冠军必须明确击败当前基线 / 冠军；
 - 失败和被淘汰算法保留历史，不抹掉研究记忆；
-- 结果必须能追溯到算法版本和引擎版本；
+- 协议升级不重写旧结果，而是追加新口径实验；
+- 结果必须能追溯到算法、引擎、场景和协议版本；
 - “看起来聪明”不算赢，数据不过关就不升默认。
 
 ## 架构
@@ -185,17 +258,20 @@ replays/
                     algorithms.py
                       │         │
                       ▼         ▼
-                  LabRuntime   Arena
+                  LabRuntime   Arena V2
                       │         │
-                      │      Experiments / Replay
-                      │
-                      ├──────────────┐
-                      ▼              ▼
-                 MiniMetroEnv   Synchronized Battle
-                                   │       │
-                                   ▼       ▼
-                              MiniMetroEnv MiniMetroEnv
-                                   same Seed / same dt
+                      │     Metrics / Experiments / Replay
+                      │         │
+                      ├─────────┴─────────────┐
+                      ▼                       ▼
+                 MiniMetroEnv           Simulation Protocol V2
+                                              │
+                                  ┌───────────┴───────────┐
+                                  ▼                       ▼
+                              CLI Battle             Live Battle
+                                  │                       │
+                                  ▼                       ▼
+                             MiniMetroEnv             MiniMetroEnv × 2
 ```
 
 ## 项目结构
@@ -205,27 +281,40 @@ metro_lab/
   algorithms.py          # 算法注册表
   planner.py             # Greedy Planner V1
   balanced_planner.py    # Balanced Greedy V2
-  engine.py              # 实时模拟运行时
-  arena.py               # 固定 Seed 竞技场
-  battle.py              # 同 Seed 同步双算法对战
+  simulation.py          # 固定 dt 的 Simulation Protocol V2
+  metrics.py             # Arena V2 时间加权健康指标
+  engine.py              # 单算法实时模拟运行时
+  arena.py               # 固定 Seed Arena V2
+  battle.py              # CLI 同 Seed 同步双算法对战
+  live_battle.py         # 浏览器双算法原子同步运行时
+  viewer_scenario.py     # 浏览器动态站点场景
   experiments.py         # 实验产物与 ReplayWriter
   server.py              # 本地 HTTP API
 web/
   index.html
+  battle.html
   styles.css
+  battle.css
   algorithm-library.css
   app.js
+  battle.js
+  map-renderer.js
 docs/
   algorithm-history.md
 tests/
+  test_simulation.py
+  test_metrics.py
   test_algorithm_library.py
   test_planner.py
   test_balanced_planner.py
   test_battle.py
+  test_live_battle.py
   test_engine_smoke.py
   test_arena.py
   test_experiments.py
+  test_viewer_scenario.py
   test_web_contract.py
+  web_battle.cjs
 ```
 
 ## 固定上游版本
@@ -240,14 +329,15 @@ python_mini_metro commit: 382d7cc65da566ac01d8151921c203c25418eacd
 
 GitHub Actions 会真实执行：
 
-1. Shell 语法检查；
-2. 下载并固定上游 Mini Metro 引擎；
-3. Python 编译；
-4. Algorithm Library / Planner / Battle / Arena / Experiments / Web 测试；
-5. 真实引擎 smoke test；
-6. 同算法同 Seed 严格平局测试；
-7. V1 vs V2 固定 Seeds、15 分钟候选 benchmark；
-8. 启动 HTTP 观战服务并请求 `/api/state`。
+1. 前端行为合约测试；
+2. Shell 语法检查；
+3. 下载并固定上游 Mini Metro 引擎；
+4. Python 编译；
+5. Algorithm Library / Planner / Protocol / Metrics / Battle / Arena / Experiments / Web 测试；
+6. 真实引擎 smoke test；
+7. 同算法同 Seed 严格平局与固定 dt 回归；
+8. V1 vs V2 固定 Seeds、15 分钟候选 benchmark；
+9. 启动 HTTP 单算法与双算法观战服务做真实请求验证。
 
 ## 清理
 
@@ -260,29 +350,3 @@ GitHub Actions 会真实执行：
 ## 来源与许可
 
 底层引擎 `python_mini_metro` 由 Yanfeng Liu 开发并采用 MIT License，详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。本仓库新增代码同样采用 MIT License。
-
-## 浏览器双算法 Battle
-
-启动 `./run.sh` 后，从观战室点击「进入双算法对战」，或打开
-[本地 Battle 页面](http://127.0.0.1:8765/battle.html)。原单算法页面及控制保持可用。
-
-- 从算法库分别选择左右算法；尚未实现的算法不可选。
-- 浏览器观战使用动态站点场景：保留固定 Seed 生成的完整站点池，每 45 秒模拟时间同时向左右网络加入一个新站，直至 20 站；界面显示下一站倒计时和新站动画。单算法观战使用相同规则。
-- 命令行 Arena、Battle 和既有 benchmark 继续使用上游的按运送量解锁规则，因此历史评测口径不变；动态规则只服务于浏览器观战。
-- 设置同一个 Seed、每步时长（默认 100 ms）和共同模拟预算（默认 900 秒）。预算必须是步长的整数倍。
-- 「开始新对战」应用表单配置；「原配置重开」忽略未提交的表单修改，重置双方环境、决策器和比分。
-- 顶部显示运送比分、领先人数、对战状态；每侧显示拥堵风险、运行状态和最新决策。
-- 服务端逐轮推进两个独立环境，一次发布同一轮双方快照。浏览器刷新和多开页面不会增加模拟步数。
-- 上游引擎拒绝动作时不走时；浏览器 Battle 会以 noop 消耗该轮固定 dt，保留无效动作计数，避免双方时钟分叉。旧 CLI/benchmark 的拒绝动作语义未改，因此旧报告的时长可能略短于预算。
-- 一侧 Game Over 后冻结，另一侧继续至共同预算；双方均结束则提前停止。风险为候车人数占拥堵阈值的比例，并非失败概率。
-- 当前服务共用一个 Battle 会话；其他浏览器发起新对战也会替换该会话。单算法会话独立运行。
-
-API：`GET /api/battle/state` 返回状态、配置、轮数和左右快照；
-`POST /api/battle/control` 接受 `{"command":"start","value":{"left":"greedy-v1","right":"balanced-greedy-v2","seed":42,"dt_ms":100,"budget_ms":900000}}`
-或 `{"command":"restart"}`。非法请求返回 400 且不替换现有会话。
-Seed 范围 0..2147483647、步长 10..1000 ms、预算 100..3600000 ms，均须为整数。
-
-新增验证：`node --test tests/web_battle.cjs`（Node 22）以及 Python 测试中的
-`test_live_battle.py`：API、同步快照、预算、重开、单侧结束和固定版本真实引擎对照。
-CI 同时保留原有单算法 smoke test 和候选 benchmark。
-Balanced Greedy V2 仍是 **candidate**；可视化对战不会自动晋级算法。
