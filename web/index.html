@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#f2f0e9">
   <title>Mini Metro AI Lab</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/algorithm-library.css">
 </head>
 <body>
   <main class="app-shell">
@@ -47,6 +48,19 @@
       </div>
 
       <aside class="brain-panel" aria-label="AI 决策面板">
+        <section class="brain-card algorithm-card">
+          <div class="section-label">算法库</div>
+          <label class="algorithm-picker">
+            <span>本局由谁来开地铁</span>
+            <select id="algorithmSelect" aria-label="选择算法"></select>
+          </label>
+          <div class="algorithm-meta">
+            <div id="algorithmBadges" class="algorithm-badges"></div>
+            <p id="algorithmSummary">正在读取算法库。</p>
+          </div>
+          <div class="algorithm-note">切换算法会使用当前 Seed 自动重开，方便公平对比。</div>
+        </section>
+
         <section class="brain-card primary">
           <div class="section-label">AI 正在想什么</div>
           <h2 id="algorithm">Greedy Planner V1</h2>

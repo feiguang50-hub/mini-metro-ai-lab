@@ -4,17 +4,10 @@ import argparse
 import json
 import statistics
 from dataclasses import asdict, dataclass
-from typing import Any, Callable
 
+from .algorithms import DEFAULT_ALGORITHM_ID, available_algorithm_ids, create_planner
 from .config import TICK_MS
 from .engine import _load_engine
-from .planner import GreedyPlanner
-
-PlannerFactory = Callable[[], Any]
-
-PLANNERS: dict[str, PlannerFactory] = {
-    "greedy-v1": GreedyPlanner,
-}
 
 
 @dataclass(frozen=True)
@@ -48,8 +41,8 @@ def run_episode(
     minutes: float = 15.0,
     dt_ms: int = TICK_MS,
 ) -> EpisodeResult:
-    if algorithm not in PLANNERS:
-        raise ValueError(f"unknown algorithm: {algorithm}")
+    if algorithm not in available_algorithm_ids():
+        raise ValueError(f"unknown or unavailable algorithm: {algorithm}")
     if minutes <= 0:
         raise ValueError("minutes must be positive")
     if dt_ms <= 0:
@@ -58,7 +51,7 @@ def run_episode(
     MiniMetroEnv, _engine_config = _load_engine()
     env = MiniMetroEnv(dt_ms=dt_ms, reward_mode="deliveries")
     observation = env.reset(seed=int(seed))
-    planner = PLANNERS[algorithm]()
+    planner = create_planner(algorithm)
     planner.reset(observation)
 
     max_steps = max(1, int(minutes * 60_000 / dt_ms))
@@ -130,12 +123,13 @@ def run_suite(
 
 
 def _parser() -> argparse.ArgumentParser:
+    available = available_algorithm_ids()
     parser = argparse.ArgumentParser(description="Mini Metro AI Lab 固定 Seed 算法竞技场")
     parser.add_argument(
         "--algorithms",
         nargs="+",
-        default=["greedy-v1"],
-        choices=sorted(PLANNERS),
+        default=[DEFAULT_ALGORITHM_ID],
+        choices=available,
         help="要比较的算法",
     )
     parser.add_argument(
