@@ -39,7 +39,7 @@ class EngineSmokeTests(unittest.TestCase):
         runtime = LabRuntime(seed=42)
         try:
             with self.assertRaises(ValueError):
-                runtime.control("algorithm", "balanced-greedy-v2")
+                runtime.control("algorithm", "beam-search")
             snapshot = runtime.snapshot()
             self.assertEqual(snapshot["runtime"]["algorithm_id"], DEFAULT_ALGORITHM_ID)
         finally:
