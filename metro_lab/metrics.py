@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .pressure import PassengerPressure
+
 _TOPOLOGY_ACTIONS = {"create_path", "replace_path", "remove_path", "buy_line"}
 
 
@@ -43,8 +45,17 @@ class EpisodeTelemetry:
     waiting_passenger_ms: float = 0.0
     fleet_load_ms: float = 0.0
     fleet_active_ms: int = 0
+    at_risk_passenger_ms: float = 0.0
+    overdue_passenger_ms: float = 0.0
+    high_risk_ms: int = 0
     peak_network_waiting: int = 0
     peak_station_queue: int = 0
+    peak_at_risk_passengers: int = 0
+    peak_overdue_passengers: int = 0
+    peak_wait_ms: int = 0
+    peak_risk_pct: int = 0
+    passenger_max_wait_time_ms: int = 0
+    overdue_passenger_threshold: int = 0
     max_paths: int = 0
     max_stations: int = 0
     max_locomotives_assigned: int = 0
@@ -52,8 +63,14 @@ class EpisodeTelemetry:
     non_noop_actions: int = 0
     topology_actions: int = 0
 
-    def observe_initial(self, observation: dict[str, Any]) -> None:
+    def observe_initial(
+        self,
+        observation: dict[str, Any],
+        pressure: PassengerPressure | None = None,
+    ) -> None:
         self._observe_state(observation, elapsed_ms=0)
+        if pressure is not None:
+            self._observe_pressure(pressure, elapsed_ms=0)
 
     def record_action(self, action_type: str | None) -> None:
         if not action_type or action_type == "noop":
@@ -67,11 +84,15 @@ class EpisodeTelemetry:
         observation: dict[str, Any],
         *,
         elapsed_ms: int,
+        pressure: PassengerPressure | None = None,
     ) -> None:
         if elapsed_ms < 0:
             raise ValueError("elapsed_ms must not be negative")
-        self.observed_ms += int(elapsed_ms)
-        self._observe_state(observation, elapsed_ms=int(elapsed_ms))
+        elapsed_ms = int(elapsed_ms)
+        self.observed_ms += elapsed_ms
+        self._observe_state(observation, elapsed_ms=elapsed_ms)
+        if pressure is not None:
+            self._observe_pressure(pressure, elapsed_ms=elapsed_ms)
 
     def _observe_state(self, observation: dict[str, Any], *, elapsed_ms: int) -> None:
         (
@@ -100,6 +121,24 @@ class EpisodeTelemetry:
                 self.fleet_load_ms += fleet_load * elapsed_ms
                 self.fleet_active_ms += elapsed_ms
 
+    def _observe_pressure(self, pressure: PassengerPressure, *, elapsed_ms: int) -> None:
+        self.passenger_max_wait_time_ms = pressure.passenger_max_wait_time_ms
+        self.overdue_passenger_threshold = pressure.overdue_passenger_threshold
+        self.peak_at_risk_passengers = max(
+            self.peak_at_risk_passengers, pressure.at_risk_passengers
+        )
+        self.peak_overdue_passengers = max(
+            self.peak_overdue_passengers, pressure.overdue_passengers
+        )
+        self.peak_wait_ms = max(self.peak_wait_ms, pressure.max_wait_ms)
+        self.peak_risk_pct = max(self.peak_risk_pct, pressure.risk_pct)
+
+        if elapsed_ms:
+            self.at_risk_passenger_ms += pressure.at_risk_passengers * elapsed_ms
+            self.overdue_passenger_ms += pressure.overdue_passengers * elapsed_ms
+            if pressure.risk_pct >= 75:
+                self.high_risk_ms += elapsed_ms
+
     @property
     def average_waiting_passengers(self) -> float:
         if self.observed_ms <= 0:
@@ -115,3 +154,15 @@ class EpisodeTelemetry:
         if self.fleet_active_ms <= 0:
             return 0.0
         return self.fleet_load_ms / self.fleet_active_ms * 100.0
+
+    @property
+    def at_risk_passenger_seconds(self) -> float:
+        return self.at_risk_passenger_ms / 1000.0
+
+    @property
+    def overdue_passenger_seconds(self) -> float:
+        return self.overdue_passenger_ms / 1000.0
+
+    @property
+    def high_risk_seconds(self) -> float:
+        return self.high_risk_ms / 1000.0
