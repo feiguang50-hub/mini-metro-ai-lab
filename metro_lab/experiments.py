@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .config import ENGINE_COMMIT, ROOT
+from .simulation import SIMULATION_PROTOCOL_VERSION
 
 SCHEMA_VERSION = 1
 DEFAULT_EXPERIMENT_ROOT = ROOT / "output" / "experiments"
@@ -138,6 +139,7 @@ class ExperimentArtifacts:
         replay_dir.mkdir(parents=True, exist_ok=True)
         config = {
             "schema_version": SCHEMA_VERSION,
+            "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "engine_commit": ENGINE_COMMIT,
             "algorithms": algorithm_ids,
@@ -160,6 +162,7 @@ class ExperimentArtifacts:
         summary_rows = [_artifact_jsonable(item) for item in summaries]
         payload = {
             "schema_version": SCHEMA_VERSION,
+            "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
             "run_id": self.run_id,
             "config": self.config,
             "results": result_rows,
@@ -188,6 +191,7 @@ class ExperimentArtifacts:
             f"# Arena Experiment · {self.run_id}",
             "",
             f"- Engine: `{ENGINE_COMMIT}`",
+            f"- Simulation protocol: `v{SIMULATION_PROTOCOL_VERSION}`",
             f"- Algorithms: {', '.join(f'`{item}`' for item in self.config['algorithms'])}",
             f"- Seeds: {', '.join(str(item) for item in self.config['seeds'])}",
             f"- Budget: {self.config['minutes']} min / seed",
@@ -195,28 +199,37 @@ class ExperimentArtifacts:
             "",
             "## Ranking",
             "",
-            "| Algorithm | Mean | Median | Min | Max | Game over | Invalid actions |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Algorithm | Deliveries | D/min | Avg waiting | Peak station | Fleet load | Game over | Invalid rate |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for row in rows:
             lines.append(
-                "| {algorithm} | {mean_deliveries} | {median_deliveries} | {min_deliveries} | "
-                "{max_deliveries} | {game_over_rate:.1%} | {invalid_actions} |".format(
+                "| {algorithm} | {mean_deliveries} | {mean_deliveries_per_minute} | "
+                "{mean_waiting_passengers} | {mean_peak_station_queue} | {mean_fleet_load_pct:.1f}% | "
+                "{game_over_rate:.1%} | {invalid_action_rate:.1%} |".format(
                     algorithm=row.get("algorithm", "?"),
                     mean_deliveries=row.get("mean_deliveries", 0),
-                    median_deliveries=row.get("median_deliveries", 0),
-                    min_deliveries=row.get("min_deliveries", 0),
-                    max_deliveries=row.get("max_deliveries", 0),
+                    mean_deliveries_per_minute=row.get("mean_deliveries_per_minute", 0),
+                    mean_waiting_passengers=row.get("mean_waiting_passengers", 0),
+                    mean_peak_station_queue=row.get("mean_peak_station_queue", 0),
+                    mean_fleet_load_pct=float(row.get("mean_fleet_load_pct", 0)),
                     game_over_rate=float(row.get("game_over_rate", 0)),
-                    invalid_actions=row.get("invalid_actions", 0),
+                    invalid_action_rate=float(row.get("invalid_action_rate", 0)),
                 )
             )
         lines.extend(
             [
                 "",
+                "## Metric notes",
+                "",
+                "- `Avg waiting`: time-weighted passengers waiting at stations.",
+                "- `Peak station`: worst single-station queue observed in an episode, averaged across seeds.",
+                "- `Fleet load`: time-weighted passenger occupancy while assigned capacity exists.",
+                "- A rejected planner action still consumes the round as a noop under Simulation Protocol V2.",
+                "",
                 "## Files",
                 "",
-                "- `config.json`: exact experiment inputs",
+                "- `config.json`: exact experiment inputs and simulation protocol",
                 "- `results.json`: machine-readable episode results and summaries",
                 "- `episodes.csv`: one row per algorithm × seed episode",
                 "- `replays/*.jsonl.gz`: sampled game states plus every non-noop decision",
