@@ -11,10 +11,11 @@
 - 👀 **沉浸观战模式**：一键隐藏 AI 面板，只看地铁网络运行。
 - ⏯️ **暂停 / 1× / 2× / 4× / 重开**：适合看算法，也适合做可复现实验。
 - 🏁 **固定 Seed 竞技场**：同一批随机种子、同一时间预算下公平比较算法。
+- 📼 **实验档案与回放记录**：Arena 自动保存配置、结果、CSV、摘要和压缩回放流。
 - 🔒 **完全本地运行**：默认只监听 `127.0.0.1`，不需要 OpenAI API，也不上传游戏状态。
 - 🧹 **干净安装**：所有依赖留在项目目录的 `.venv` 和 `.vendor` 中，删除目录即可卸载。
 
-> 当前版本：**0.3.0 / Algorithm Library**。观战、评测和算法发现现在共用同一份注册表。
+> 当前版本：**0.4.0 / Experiment Artifacts + Replay Recording**。已经能留下可复现的实验黑匣子；浏览器回放播放器将在后续版本接入。
 
 ## 30 秒启动
 
@@ -125,6 +126,53 @@ Arena 只允许选择**已经实现且可运行**的算法。它和观战页共�
 
 算法进化、晋级、淘汰和复活记录见 [`docs/algorithm-history.md`](docs/algorithm-history.md)。
 
+## 📼 实验档案与回放
+
+从 0.4.0 开始，Arena 默认会把每次实验保存到：
+
+```text
+output/experiments/<timestamp>-<algorithm...>/
+```
+
+每个实验目录包含：
+
+```text
+config.json       # 算法、Seeds、时间预算、步长、引擎提交
+results.json      # 机器可读的逐局结果与排行榜
+episodes.csv      # 每个 algorithm × seed 一行
+summary.md        # 人类可读摘要
+replays/
+  *.jsonl.gz      # 压缩回放流
+```
+
+回放采用带版本号的 gzip JSON Lines：
+
+- 开局状态必记；
+- 默认每 1000 ms 采样一次完整结构化状态；
+- 每个非 `noop` 决策无论是否命中采样点都会记录；
+- Game Over 会记录最终状态；
+- Header 保存算法、Seed、步长、时间预算与底层引擎提交。
+
+这样以后可以做真正的浏览器时间轴回放，而不用重新猜当时发生了什么。
+
+常用选项：
+
+```bash
+# 只保存结果，不记回放
+.venv/bin/mini-metro-arena --no-replays
+
+# 完全不落盘，只看终端输出
+.venv/bin/mini-metro-arena --no-save
+
+# 更密集的回放采样
+.venv/bin/mini-metro-arena --replay-sample-ms 500
+
+# 自定义实验根目录
+.venv/bin/mini-metro-arena --output-dir /tmp/metro-experiments
+```
+
+`output/` 已被 Git 忽略。我们只会把有研究价值的代表性实验晋升进仓库历史，不让普通跑分把仓库撑成数据仓库。
+
 ## 设计原则
 
 Mini Metro 的核心魅力来自：**城市长大 → 网络变差 → 重画线路 → 恢复秩序**。
@@ -136,6 +184,14 @@ Mini Metro 的核心魅力来自：**城市长大 → 网络变差 → 重画线
 - 客流尽量用图形表达；
 - 动画只改善观看，不改变底层模拟；
 - 不复制 Mini Metro 的商业素材或资源文件。
+
+实验原则：
+
+- 同轮比较使用相同 Seeds、步长和时间预算；
+- 小样本只能作为候选证据；
+- 新冠军必须明确击败当前冠军；
+- 失败算法保留历史，不删除研究记忆；
+- 实验结果必须能追溯到算法版本和引擎版本。
 
 ## 架构
 
@@ -157,6 +213,14 @@ Mini Metro 的核心魅力来自：**城市长大 → 网络变差 → 重画线
                    │
                    ▼
           python_mini_metro
+
+Headless Arena
+    │
+    ├── results / summaries
+    └── ReplayWriter
+            │
+            ▼
+      output/experiments
 ```
 
 ## 项目结构
@@ -167,6 +231,7 @@ metro_lab/
   engine.py       # 引擎适配与实时模拟线程
   planner.py      # Greedy Planner V1
   arena.py        # 固定 Seed 无头竞技场
+  experiments.py  # 实验目录、CSV/JSON/Markdown、回放记录器
   server.py       # 本地 HTTP API + 静态页面
 web/
   index.html
@@ -183,6 +248,7 @@ tests/
   test_planner.py
   test_engine_smoke.py
   test_arena.py
+  test_experiments.py
   test_web_contract.py
 ```
 
@@ -201,9 +267,10 @@ GitHub Actions 会真实执行：
 1. Shell 语法检查；
 2. 下载并固定上游 Mini Metro 引擎；
 3. Python 编译；
-4. Algorithm Library / Planner / Arena / Web 合约单测；
+4. Algorithm Library / Planner / Arena / Experiments / Web 合约单测；
 5. 真实引擎 smoke test；
-6. 启动本地 HTTP 服务并请求 `/api/state`。
+6. 真实引擎短局回放写入测试；
+7. 启动本地 HTTP 服务并请求 `/api/state`。
 
 ## 清理
 
