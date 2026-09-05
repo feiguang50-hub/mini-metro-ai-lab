@@ -25,6 +25,13 @@ class WebContractTests(unittest.TestCase):
         self.assertIn('id="immersiveBtn"', html)
         self.assertIn('id="metroCanvas"', html)
 
+    def test_algorithm_library_selector_is_present(self):
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="algorithmSelect"', html)
+        self.assertIn("control('algorithm'", js)
+        self.assertIn("algorithmSummary", js)
+
 
 if __name__ == "__main__":
     unittest.main()

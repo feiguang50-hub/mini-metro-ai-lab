@@ -4,9 +4,10 @@
   const $ = (id) => document.getElementById(id);
 
   let state = null;
-  let toastTimer = null;
   let fetching = false;
   let crowdVisible = true;
+  let toastTimer = null;
+  let catalogSignature = '';
   let viewport = { width: 1280, height: 720, dpr: 1 };
   const trainVisuals = new Map();
 
@@ -18,9 +19,7 @@
   }
 
   function colorOf(value, fallback) {
-    if (Array.isArray(value) && value.length >= 3) {
-      return `rgb(${value[0]},${value[1]},${value[2]})`;
-    }
+    if (Array.isArray(value) && value.length >= 3) return `rgb(${value[0]},${value[1]},${value[2]})`;
     if (typeof value === 'string' && value) return value;
     return fallback;
   }
@@ -78,10 +77,7 @@
   function traceShape(type, x, y, r) {
     ctx.beginPath();
     if (type === 'triangle') {
-      ctx.moveTo(x, y - r);
-      ctx.lineTo(x + r, y + r * .8);
-      ctx.lineTo(x - r, y + r * .8);
-      ctx.closePath();
+      ctx.moveTo(x, y - r); ctx.lineTo(x + r, y + r * .8); ctx.lineTo(x - r, y + r * .8); ctx.closePath();
     } else if (type === 'square') {
       ctx.rect(x - r * .78, y - r * .78, r * 1.56, r * 1.56);
     } else if (type === 'diamond') {
@@ -116,7 +112,6 @@
       ctx.lineCap = 'round';
       ctx.stroke();
     }
-
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = '#303236';
     ctx.fillStyle = '#f7f4ed';
@@ -171,17 +166,11 @@
       if (!metro.position) continue;
       active.add(metro.id);
       const target = enginePoint(metro.position, engine);
-      const existing = trainVisuals.get(metro.id);
-      if (!existing) {
-        trainVisuals.set(metro.id, { x: target.x, y: target.y, tx: target.x, ty: target.y });
-      } else {
-        existing.tx = target.x;
-        existing.ty = target.y;
-      }
+      const visual = trainVisuals.get(metro.id);
+      if (!visual) trainVisuals.set(metro.id, { x: target.x, y: target.y, tx: target.x, ty: target.y });
+      else { visual.tx = target.x; visual.ty = target.y; }
     }
-    for (const id of [...trainVisuals.keys()]) {
-      if (!active.has(id)) trainVisuals.delete(id);
-    }
+    for (const id of [...trainVisuals.keys()]) if (!active.has(id)) trainVisuals.delete(id);
   }
 
   function drawNetwork(current) {
@@ -196,66 +185,43 @@
     const threshold = Math.max(1, Number(current.runtime?.overdue_threshold) || 10);
 
     beginFrame();
-
-    // Barely-visible paper grain lines, enough to avoid a sterile debug-canvas feel.
     ctx.save();
     ctx.strokeStyle = 'rgba(44,46,45,.022)';
     ctx.lineWidth = 1;
     const grid = Math.max(90, viewport.width / 10);
-    for (let x = grid; x < viewport.width; x += grid) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, viewport.height); ctx.stroke();
-    }
-    for (let y = grid; y < viewport.height; y += grid) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(viewport.width, y); ctx.stroke();
-    }
+    for (let x = grid; x < viewport.width; x += grid) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, viewport.height); ctx.stroke(); }
+    for (let y = grid; y < viewport.height; y += grid) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(viewport.width, y); ctx.stroke(); }
     ctx.restore();
 
     paths.forEach((path, idx) => {
       const pts = (path.station_ids || []).map((id) => byId.get(id)).filter(Boolean).map((station) => stationPoint(station, engine));
       if (pts.length < 2) return;
       const color = colorOf(path.color, ['#d85c53','#497eb8','#d1a73a','#69936c','#8a6db1'][idx % 5]);
-
       const trace = () => {
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        pts.slice(1).forEach((p) => ctx.lineTo(p.x, p.y));
+        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); pts.slice(1).forEach((p) => ctx.lineTo(p.x, p.y));
         if (path.is_looped) ctx.closePath();
       };
-
       ctx.save();
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      trace();
-      ctx.strokeStyle = 'rgba(247,244,237,.96)';
-      ctx.lineWidth = Math.max(8.5, viewport.width / 115);
-      ctx.stroke();
-      trace();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = Math.max(5.2, viewport.width / 180);
-      ctx.stroke();
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      trace(); ctx.strokeStyle = 'rgba(247,244,237,.96)'; ctx.lineWidth = Math.max(8.5, viewport.width / 115); ctx.stroke();
+      trace(); ctx.strokeStyle = color; ctx.lineWidth = Math.max(5.2, viewport.width / 180); ctx.stroke();
       ctx.restore();
     });
 
     updateTrainTargets(game, engine);
-    const pathById = new Map(paths.map((path, idx) => [path.id, { path, idx }]));
+    const pathById = new Map(paths.map((path) => [path.id, path]));
     for (const metro of metros) {
       const visual = trainVisuals.get(metro.id);
       if (!visual) continue;
       visual.x += (visual.tx - visual.x) * .18;
       visual.y += (visual.ty - visual.y) * .18;
-      const route = pathById.get(metro.path_id);
-      const color = colorOf(route?.path?.color, '#34373a');
+      const color = colorOf(pathById.get(metro.path_id)?.color, '#34373a');
       const w = Math.max(15, viewport.width / 68);
       const h = Math.max(8, w * .56);
       ctx.save();
       ctx.translate(visual.x, visual.y);
-      ctx.fillStyle = color;
-      ctx.strokeStyle = '#f7f4ed';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(4, h / 2));
-      ctx.fill();
-      ctx.stroke();
+      ctx.fillStyle = color; ctx.strokeStyle = '#f7f4ed'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(4, h / 2)); ctx.fill(); ctx.stroke();
       ctx.restore();
     }
 
@@ -268,6 +234,42 @@
     });
   }
 
+  function statusLabel(status) {
+    return ({ baseline: '基线', champion: '冠军', candidate: '候选', retired: '退役', eliminated: '淘汰', archived: '归档', planned: '开发中' })[status] || status;
+  }
+
+  function renderAlgorithmLibrary(current) {
+    const catalog = current.algorithms || [];
+    const signature = JSON.stringify(catalog.map((item) => [item.id, item.available, item.status, item.version]));
+    const select = $('algorithmSelect');
+    if (signature !== catalogSignature) {
+      catalogSignature = signature;
+      select.innerHTML = '';
+      catalog.forEach((item) => {
+        const option = document.createElement('option');
+        option.value = item.id;
+        option.disabled = !item.available;
+        option.textContent = `${item.name}${item.available ? '' : ' · 开发中'}`;
+        select.appendChild(option);
+      });
+    }
+
+    const activeId = current.runtime.algorithm_id;
+    if (select.value !== activeId) select.value = activeId;
+    const spec = catalog.find((item) => item.id === activeId);
+    if (!spec) return;
+
+    $('algorithmSummary').textContent = spec.summary || '';
+    const badges = $('algorithmBadges');
+    badges.innerHTML = '';
+    [statusLabel(spec.status), spec.family, `v${spec.version}`, ...(spec.tags || [])].forEach((text, index) => {
+      const badge = document.createElement('span');
+      badge.className = `algorithm-badge${index === 0 ? ` status${spec.status === 'planned' ? ' planned' : ''}` : ''}`;
+      badge.textContent = text;
+      badges.appendChild(badge);
+    });
+  }
+
   function renderUI(current) {
     state = current;
     const game = current.game || {};
@@ -277,6 +279,7 @@
     const threshold = Math.max(1, Number(current.runtime.overdue_threshold) || 10);
     const pressureRatio = Math.min(1, maxWaiting / threshold);
 
+    renderAlgorithmLibrary(current);
     $('deliveries').textContent = game.deliveries ?? 0;
     $('time').textContent = fmtTime(game.time_ms);
     $('risk').textContent = `${current.runtime.risk}%`;
@@ -302,9 +305,7 @@
     $('statusText').textContent = dead ? '本局结束' : paused ? '已暂停' : '运行中';
     $('pauseBtn').textContent = paused ? '继续' : '暂停';
     $('statusDot').className = `status-dot${dead ? ' dead' : paused ? ' paused' : ''}`;
-    document.querySelectorAll('.speed').forEach((btn) => {
-      btn.classList.toggle('active', Number(btn.dataset.speed) === current.runtime.speed);
-    });
+    document.querySelectorAll('.speed').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.speed) === current.runtime.speed));
 
     $('gameOver').hidden = !dead;
     if (dead) $('finalScore').textContent = `运送 ${game.deliveries ?? 0} 人`;
@@ -332,27 +333,46 @@
     node.textContent = text;
     node.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => node.classList.remove('show'), 1400);
+    toastTimer = setTimeout(() => node.classList.remove('show'), 1500);
   }
 
   async function control(command, value) {
     try {
       const response = await fetch('/api/control', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({command, value}),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, value }),
       });
-      if (!response.ok) throw new Error((await response.json()).error || '控制失败');
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || '控制失败');
       await poll();
-    } catch (err) {
-      toast(err.message || String(err));
+      return payload;
+    } catch (error) {
+      toast(error.message || String(error));
+      throw error;
     }
   }
 
-  $('pauseBtn').addEventListener('click', () => control(state?.runtime.paused ? 'resume' : 'pause'));
-  $('restartBtn').addEventListener('click', () => control('restart'));
-  $('randomBtn').addEventListener('click', () => control('random_restart'));
-  document.querySelectorAll('.speed').forEach((btn) => btn.addEventListener('click', () => control('speed', Number(btn.dataset.speed))));
+  $('pauseBtn').addEventListener('click', () => control(state?.runtime.paused ? 'resume' : 'pause').catch(() => {}));
+  $('restartBtn').addEventListener('click', () => control('restart').catch(() => {}));
+  $('randomBtn').addEventListener('click', () => control('random_restart').catch(() => {}));
+  document.querySelectorAll('.speed').forEach((btn) => btn.addEventListener('click', () => control('speed', Number(btn.dataset.speed)).catch(() => {})));
+
+  $('algorithmSelect').addEventListener('change', async (event) => {
+    const previous = state?.runtime.algorithm_id;
+    const next = event.target.value;
+    if (!next || next === previous) return;
+    event.target.disabled = true;
+    try {
+      await control('algorithm', next);
+      toast('已切换算法，并用同一 Seed 重开');
+      trainVisuals.clear();
+    } catch (_error) {
+      event.target.value = previous || '';
+    } finally {
+      event.target.disabled = false;
+    }
+  });
 
   $('crowdBtn').addEventListener('click', () => {
     crowdVisible = !crowdVisible;
@@ -361,10 +381,11 @@
   });
 
   $('immersiveBtn').addEventListener('click', () => {
-    const immersive = document.body.classList.toggle('immersive');
-    $('immersiveBtn').classList.toggle('active', immersive);
-    $('immersiveBtn').setAttribute('aria-pressed', String(immersive));
-    $('immersiveBtn').textContent = immersive ? '显示 AI' : '沉浸观战';
+    const active = !document.body.classList.contains('immersive');
+    document.body.classList.toggle('immersive', active);
+    $('immersiveBtn').textContent = active ? '显示 AI' : '沉浸观战';
+    $('immersiveBtn').classList.toggle('active', active);
+    $('immersiveBtn').setAttribute('aria-pressed', String(active));
     requestAnimationFrame(resizeCanvas);
   });
 
@@ -372,10 +393,12 @@
     if (fetching) return;
     fetching = true;
     try {
-      const response = await fetch('/api/state', {cache: 'no-store'});
+      const response = await fetch('/api/state', { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      renderUI(await response.json());
-    } catch (err) {
+      const next = await response.json();
+      renderUI(next);
+      updateTrainTargets(next.game || {}, next.engine || {});
+    } catch (_error) {
       $('statusText').textContent = '连接中断';
       $('statusDot').className = 'status-dot dead';
     } finally {
@@ -384,17 +407,14 @@
   }
 
   function animate() {
+    resizeCanvas();
     drawNetwork(state);
     requestAnimationFrame(animate);
   }
 
+  window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
-  if ('ResizeObserver' in window) {
-    new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
-  } else {
-    window.addEventListener('resize', resizeCanvas);
-  }
   poll();
-  setInterval(poll, 140);
+  setInterval(poll, 120);
   requestAnimationFrame(animate);
 })();

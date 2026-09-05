@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .algorithms import DEFAULT_ALGORITHM_ID, available_algorithm_ids
 from .config import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_SEED, WEB_ROOT
 from .engine import LabRuntime
 
@@ -62,6 +63,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/state":
             self._json(self.server.runtime.snapshot())
             return
+        if path == "/api/algorithms":
+            self._json({"algorithms": self.server.runtime.algorithm_library()})
+            return
         self._static(path.lstrip("/") or "index.html")
 
     def do_POST(self) -> None:
@@ -84,10 +88,16 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Mini Metro Lab 本地观战服务")
+    parser = argparse.ArgumentParser(description="Mini Metro AI Lab 本地观战服务")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--algorithm",
+        default=DEFAULT_ALGORITHM_ID,
+        choices=available_algorithm_ids(),
+        help="启动时使用的算法",
+    )
     parser.add_argument("--no-open", action="store_true", help="不自动打开浏览器")
     return parser
 
@@ -99,14 +109,15 @@ def main() -> None:
     if not WEB_ROOT.is_dir():
         raise SystemExit(f"找不到前端目录：{WEB_ROOT}")
 
-    runtime = LabRuntime(seed=args.seed)
+    runtime = LabRuntime(seed=args.seed, algorithm_id=args.algorithm)
     runtime.start()
     server = LabHTTPServer((args.host, args.port), Handler)
     server.runtime = runtime
     server.web_root = WEB_ROOT
 
     url = f"http://{args.host}:{args.port}/"
-    print(f"🚇 Mini Metro Lab 已启动：{url}")
+    print(f"🚇 Mini Metro AI Lab 已启动：{url}")
+    print(f"算法：{args.algorithm}")
     print("按 Ctrl+C 关闭。")
     if not args.no_open:
         threading.Timer(0.35, lambda: webbrowser.open(url)).start()
@@ -119,7 +130,7 @@ def main() -> None:
         server.shutdown()
         server.server_close()
         runtime.stop()
-        print("已关闭 Mini Metro Lab。")
+        print("已关闭 Mini Metro AI Lab。")
 
 
 if __name__ == "__main__":

@@ -10,8 +10,14 @@ from dataclasses import asdict
 from enum import Enum
 from typing import Any
 
+from .algorithms import (
+    DEFAULT_ALGORITHM_ID,
+    algorithm_catalog,
+    create_planner,
+    get_algorithm_spec,
+)
 from .config import ENGINE_COMMIT, ENGINE_ROOT, ENGINE_SRC, TICK_MS
-from .planner import Decision, GreedyPlanner
+from .planner import Decision
 
 
 def _jsonable(value: Any) -> Any:
@@ -45,14 +51,15 @@ def _load_engine():
 
 
 class LabRuntime:
-    def __init__(self, seed: int = 42) -> None:
+    def __init__(self, seed: int = 42, algorithm_id: str = DEFAULT_ALGORITHM_ID) -> None:
         MiniMetroEnv, engine_config = _load_engine()
         self._MiniMetroEnv = MiniMetroEnv
         self._engine_config = engine_config
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._planner = GreedyPlanner()
+        self._algorithm_id = get_algorithm_spec(algorithm_id).id
+        self._planner = create_planner(self._algorithm_id)
         self._env = MiniMetroEnv(dt_ms=TICK_MS, reward_mode="deliveries")
         self._seed = int(seed)
         self._speed = 1
@@ -65,11 +72,17 @@ class LabRuntime:
 
     def _reset_locked(self, seed: int) -> None:
         self._seed = int(seed)
+        self._planner = create_planner(self._algorithm_id)
         self._env = self._MiniMetroEnv(dt_ms=TICK_MS, reward_mode="deliveries")
         self._observation = self._env.reset(seed=self._seed)
         self._planner.reset(self._observation)
         self._history.clear()
-        self._last_decision = Decision({"type": "noop"}, "新局开始", f"随机种子：{self._seed}")
+        spec = get_algorithm_spec(self._algorithm_id)
+        self._last_decision = Decision(
+            {"type": "noop"},
+            "新局开始",
+            f"{spec.name} · Seed {self._seed}",
+        )
         self._action_ok = True
         self._paused = False
 
@@ -112,6 +125,9 @@ class LabRuntime:
             elapsed = time.monotonic() - started
             self._stop.wait(max(0.01, TICK_MS / 1000 - elapsed))
 
+    def algorithm_library(self) -> list[dict[str, Any]]:
+        return algorithm_catalog()
+
     def control(self, command: str, value: Any = None) -> dict[str, Any]:
         with self._lock:
             if command == "pause":
@@ -129,9 +145,18 @@ class LabRuntime:
                 self._reset_locked(self._seed)
             elif command == "random_restart":
                 self._reset_locked(random.randint(1, 2_147_483_647))
+            elif command == "algorithm":
+                if not isinstance(value, str):
+                    raise ValueError("algorithm id is required")
+                spec = get_algorithm_spec(value)
+                if not spec.available:
+                    raise ValueError(f"algorithm is not available yet: {value}")
+                if spec.id != self._algorithm_id:
+                    self._algorithm_id = spec.id
+                    self._reset_locked(self._seed)
             else:
                 raise ValueError(f"unknown command: {command}")
-            return {"ok": True, "command": command}
+            return {"ok": True, "command": command, "algorithm_id": self._algorithm_id}
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -140,6 +165,7 @@ class LabRuntime:
             threshold = int(getattr(self._env.mediator, "overdue_passenger_threshold", 10))
             max_waiting = max((int(st.get("passenger_count", 0)) for st in stations), default=0)
             risk = min(100, round(max_waiting / max(1, threshold) * 100))
+            spec = get_algorithm_spec(self._algorithm_id)
             payload = {
                 "engine": {
                     "commit": ENGINE_COMMIT,
@@ -150,11 +176,16 @@ class LabRuntime:
                     "seed": self._seed,
                     "speed": self._speed,
                     "paused": self._paused,
-                    "algorithm": self._planner.name,
+                    "algorithm_id": spec.id,
+                    "algorithm": spec.name,
+                    "algorithm_family": spec.family,
+                    "algorithm_status": spec.status,
+                    "algorithm_version": spec.version,
                     "action_ok": self._action_ok,
                     "risk": risk,
                     "overdue_threshold": threshold,
                 },
+                "algorithms": self.algorithm_library(),
                 "decision": _jsonable(asdict(self._last_decision)),
                 "history": _jsonable(list(self._history)),
                 "game": s,
