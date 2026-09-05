@@ -13,10 +13,12 @@ from urllib.parse import urlparse
 from .algorithms import DEFAULT_ALGORITHM_ID, available_algorithm_ids
 from .config import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_SEED, WEB_ROOT
 from .engine import LabRuntime
+from .live_battle import BattleRuntime
 
 
 class LabHTTPServer(ThreadingHTTPServer):
     runtime: LabRuntime
+    battle: BattleRuntime
     web_root: Path
 
 
@@ -60,6 +62,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/battle/state":
+            self._json(self.server.battle.snapshot())
+            return
         if path == "/api/state":
             self._json(self.server.runtime.snapshot())
             return
@@ -70,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path != "/api/control":
+        if path not in {"/api/control", "/api/battle/control"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
@@ -78,12 +83,15 @@ class Handler(BaseHTTPRequestHandler):
             if size < 0 or size > 16_384:
                 raise ValueError("invalid body size")
             payload = json.loads(self.rfile.read(size) or b"{}")
+            if not isinstance(payload, dict):
+                raise ValueError("body must be an object")
             command = payload.get("command")
             if not isinstance(command, str):
                 raise ValueError("command is required")
-            result = self.server.runtime.control(command, payload.get("value"))
+            runtime = self.server.battle if path == "/api/battle/control" else self.server.runtime
+            result = runtime.control(command, payload.get("value"))
             self._json(result)
-        except (ValueError, json.JSONDecodeError) as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
             self._json({"ok": False, "error": str(exc)}, status=400)
 
 
@@ -111,8 +119,11 @@ def main() -> None:
 
     runtime = LabRuntime(seed=args.seed, algorithm_id=args.algorithm)
     runtime.start()
+    battle = BattleRuntime()
+    battle.start()
     server = LabHTTPServer((args.host, args.port), Handler)
     server.runtime = runtime
+    server.battle = battle
     server.web_root = WEB_ROOT
 
     url = f"http://{args.host}:{args.port}/"
@@ -130,6 +141,7 @@ def main() -> None:
         server.shutdown()
         server.server_close()
         runtime.stop()
+        battle.stop()
         print("已关闭 Mini Metro AI Lab。")
 
 

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>同步对战 · Mini Metro AI Lab</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/battle.css">
+</head>
+<body>
+<main class="app-shell">
+  <header class="topbar">
+    <div class="brand"><div class="eyebrow">MINI METRO · BATTLE</div><h1>双算法同步对战</h1><p>两套独立网络，同一个起点。 <a href="/">返回单算法观战</a></p></div>
+    <div class="top-metrics"><div><span>实时比分 · 左 : 右</span><strong id="score">0 : 0</strong></div><div><span>领先幅度</span><strong id="margin">平局</strong></div><div><span>对战状态</span><strong id="battleStatus">等待开始</strong></div></div>
+  </header>
+  <form id="battleForm" class="battle-controls">
+    <label>左侧算法<select id="leftAlgorithm" required aria-label="左侧算法"></select></label>
+    <label>右侧算法<select id="rightAlgorithm" required aria-label="右侧算法"></select></label>
+    <label>Seed<input id="battleSeed" type="number" min="0" max="2147483647" step="1" value="42" required></label>
+    <label>每步时长（毫秒）<input id="battleDt" type="number" min="10" max="1000" step="1" value="100" required></label>
+    <label>共同预算（秒）<input id="battleBudget" type="number" min="0.1" max="3600" step="0.001" value="900" required></label>
+    <button id="startBattle" class="primary-control" type="submit" disabled>开始新对战</button>
+    <button id="restartBattle" class="secondary" type="button" disabled>原配置重开</button>
+  </form>
+  <p id="battleConfig" class="battle-note">选择算法后开始；修改选项只会在开始新对战时生效。</p>
+  <p id="battleError" role="alert" hidden></p>
+  <section class="battle-grid" aria-label="同步对战地图">
+    <article><header class="side-header"><h2 id="leftName">左侧</h2><span id="leftStatus">等待开始</span><strong id="leftRisk">风险 0%</strong></header><div class="map-panel"><canvas id="leftCanvas" aria-label="左侧实时地铁网络"></canvas></div><p id="leftDecision" class="battle-note">等待第一轮决策</p></article>
+    <article><header class="side-header"><h2 id="rightName">右侧</h2><span id="rightStatus">等待开始</span><strong id="rightRisk">风险 0%</strong></header><div class="map-panel"><canvas id="rightCanvas" aria-label="右侧实时地铁网络"></canvas></div><p id="rightDecision" class="battle-note">等待第一轮决策</p></article>
+  </section>
+  <p class="battle-note">风险 = 最拥挤车站候车人数 / 拥堵阈值；不代表失败概率。提前结束的一侧保留最终画面，另一侧继续至预算结束。单场领先不改变算法评级。</p>
+</main>
+<script src="/map-renderer.js"></script>
+<script src="/battle.js"></script>
+</body>
+</html>
