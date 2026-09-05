@@ -11,6 +11,7 @@ from .config import ENGINE_COMMIT, TICK_MS
 from .engine import _jsonable, _load_engine
 from .experiments import DEFAULT_EXPERIMENT_ROOT, ExperimentArtifacts, ReplayWriter
 from .metrics import EpisodeTelemetry
+from .pressure import passenger_pressure
 from .scenarios import (
     DEFAULT_SCENARIO_ID,
     advance_scenario,
@@ -39,6 +40,15 @@ class EpisodeResult:
     peak_network_waiting: int = 0
     peak_station_queue: int = 0
     average_fleet_load_pct: float = 0.0
+    at_risk_passenger_seconds: float = 0.0
+    overdue_passenger_seconds: float = 0.0
+    high_risk_seconds: float = 0.0
+    peak_at_risk_passengers: int = 0
+    peak_overdue_passengers: int = 0
+    peak_wait_seconds: float = 0.0
+    peak_risk_pct: int = 0
+    passenger_max_wait_seconds: float = 0.0
+    overdue_passenger_threshold: int = 0
     max_paths: int = 0
     max_stations: int = 0
     max_locomotives_assigned: int = 0
@@ -64,6 +74,11 @@ class AlgorithmSummary:
     mean_peak_network_waiting: float = 0.0
     mean_peak_station_queue: float = 0.0
     mean_fleet_load_pct: float = 0.0
+    mean_peak_wait_seconds: float = 0.0
+    mean_peak_risk_pct: float = 0.0
+    mean_high_risk_seconds: float = 0.0
+    mean_at_risk_passenger_seconds: float = 0.0
+    mean_peak_overdue_passengers: float = 0.0
     non_noop_actions: int = 0
     invalid_action_rate: float = 0.0
 
@@ -115,7 +130,7 @@ def run_episode(
     planner.reset(observation)
 
     telemetry = EpisodeTelemetry()
-    telemetry.observe_initial(observation)
+    telemetry.observe_initial(observation, passenger_pressure(env))
     max_steps = max(1, int(minutes * 60_000 / dt_ms))
     invalid_actions = 0
     done = False
@@ -163,7 +178,11 @@ def run_episode(
             if advance_scenario(env, scenario):
                 observation = env.observe()
                 done = bool(done or observation["structured"].get("is_game_over"))
-            telemetry.record_transition(observation, elapsed_ms=outcome.elapsed_ms)
+            telemetry.record_transition(
+                observation,
+                elapsed_ms=outcome.elapsed_ms,
+                pressure=passenger_pressure(env),
+            )
 
             if action_type != "noop" and not action_ok:
                 invalid_actions += 1
@@ -211,6 +230,15 @@ def run_episode(
         peak_network_waiting=telemetry.peak_network_waiting,
         peak_station_queue=telemetry.peak_station_queue,
         average_fleet_load_pct=round(telemetry.average_fleet_load_pct, 2),
+        at_risk_passenger_seconds=round(telemetry.at_risk_passenger_seconds, 2),
+        overdue_passenger_seconds=round(telemetry.overdue_passenger_seconds, 2),
+        high_risk_seconds=round(telemetry.high_risk_seconds, 2),
+        peak_at_risk_passengers=telemetry.peak_at_risk_passengers,
+        peak_overdue_passengers=telemetry.peak_overdue_passengers,
+        peak_wait_seconds=round(telemetry.peak_wait_ms / 1000.0, 2),
+        peak_risk_pct=telemetry.peak_risk_pct,
+        passenger_max_wait_seconds=round(telemetry.passenger_max_wait_time_ms / 1000.0, 2),
+        overdue_passenger_threshold=telemetry.overdue_passenger_threshold,
         max_paths=telemetry.max_paths,
         max_stations=telemetry.max_stations,
         max_locomotives_assigned=telemetry.max_locomotives_assigned,
@@ -259,6 +287,21 @@ def summarize(results: list[EpisodeResult]) -> list[AlgorithmSummary]:
                 mean_fleet_load_pct=round(
                     statistics.fmean(episode.average_fleet_load_pct for episode in episodes), 2
                 ),
+                mean_peak_wait_seconds=round(
+                    statistics.fmean(episode.peak_wait_seconds for episode in episodes), 2
+                ),
+                mean_peak_risk_pct=round(
+                    statistics.fmean(episode.peak_risk_pct for episode in episodes), 1
+                ),
+                mean_high_risk_seconds=round(
+                    statistics.fmean(episode.high_risk_seconds for episode in episodes), 2
+                ),
+                mean_at_risk_passenger_seconds=round(
+                    statistics.fmean(episode.at_risk_passenger_seconds for episode in episodes), 2
+                ),
+                mean_peak_overdue_passengers=round(
+                    statistics.fmean(episode.peak_overdue_passengers for episode in episodes), 2
+                ),
                 non_noop_actions=non_noop_actions,
                 invalid_action_rate=round(
                     invalid_actions / non_noop_actions if non_noop_actions else 0.0,
@@ -272,7 +315,7 @@ def summarize(results: list[EpisodeResult]) -> list[AlgorithmSummary]:
             item.scenario,
             -item.mean_deliveries,
             item.game_over_rate,
-            item.mean_waiting_passengers,
+            item.mean_peak_risk_pct,
             item.algorithm,
         ),
     )
@@ -303,42 +346,15 @@ def run_suite(
 def _parser() -> argparse.ArgumentParser:
     available = available_algorithm_ids()
     parser = argparse.ArgumentParser(description="Mini Metro AI Lab 固定 Seed 算法竞技场")
-    parser.add_argument(
-        "--algorithms",
-        nargs="+",
-        default=[DEFAULT_ALGORITHM_ID],
-        choices=available,
-        help="要比较的算法",
-    )
-    parser.add_argument(
-        "--seeds",
-        nargs="+",
-        type=int,
-        default=[42, 314, 2026, 4096, 65537],
-        help="公平复现用的随机种子",
-    )
-    parser.add_argument(
-        "--scenario",
-        default=DEFAULT_SCENARIO_ID,
-        choices=scenario_ids(),
-        help="版本化 benchmark 场景",
-    )
+    parser.add_argument("--algorithms", nargs="+", default=[DEFAULT_ALGORITHM_ID], choices=available, help="要比较的算法")
+    parser.add_argument("--seeds", nargs="+", type=int, default=[42, 314, 2026, 4096, 65537], help="公平复现用的随机种子")
+    parser.add_argument("--scenario", default=DEFAULT_SCENARIO_ID, choices=scenario_ids(), help="版本化 benchmark 场景")
     parser.add_argument("--minutes", type=float, default=15.0, help="每局最多模拟多少分钟")
     parser.add_argument("--dt-ms", type=int, default=TICK_MS, help="模拟步长，默认与实时观战一致")
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_EXPERIMENT_ROOT,
-        help="实验结果目录，默认 output/experiments",
-    )
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_EXPERIMENT_ROOT, help="实验结果目录，默认 output/experiments")
     parser.add_argument("--no-save", action="store_true", help="只输出终端结果，不保存实验目录")
     parser.add_argument("--no-replays", action="store_true", help="保存结果，但不记录回放")
-    parser.add_argument(
-        "--replay-sample-ms",
-        type=int,
-        default=1_000,
-        help="回放状态采样间隔；非 noop 决策无论如何都会记录",
-    )
+    parser.add_argument("--replay-sample-ms", type=int, default=1_000, help="回放状态采样间隔；非 noop 决策无论如何都会记录")
     parser.add_argument("--json", action="store_true", help="输出机器可读 JSON")
     return parser
 
@@ -351,31 +367,32 @@ def _print_human(
 ) -> None:
     spec = get_scenario_spec(scenario)
     print(f"\n🚇 Mini Metro AI Arena · Protocol V2 · {spec.name}")
-    print("=" * 96)
+    print("=" * 108)
     print(
-        f"{'算法':18} {'Seed':>8} {'运送':>6} {'D/min':>7} {'均候车':>8} "
-        f"{'峰值站':>7} {'站点':>6} {'时间':>8} {'无效':>6}"
+        f"{'算法':18} {'Seed':>8} {'运送':>6} {'D/min':>7} {'均候车':>7} "
+        f"{'风险峰':>7} {'最长等':>7} {'站点':>5} {'时间':>8} {'无效':>5}"
     )
     for item in results:
         print(
             f"{item.algorithm:18} {item.seed:>8} {item.deliveries:>6} "
-            f"{item.deliveries_per_minute:>7.2f} {item.average_waiting_passengers:>8.2f} "
-            f"{item.peak_station_queue:>7} {item.max_stations:>6} "
-            f"{item.simulated_ms / 60_000:>6.2f}m {item.invalid_actions:>6}"
+            f"{item.deliveries_per_minute:>7.2f} {item.average_waiting_passengers:>7.2f} "
+            f"{item.peak_risk_pct:>6}% {item.peak_wait_seconds:>6.1f}s {item.max_stations:>5} "
+            f"{item.simulated_ms / 60_000:>6.2f}m {item.invalid_actions:>5}"
         )
 
-    print("\n排行榜（主排序仍以运送量为准，健康指标用于解释胜负）")
-    print("-" * 96)
+    print("\n排行榜（主排序仍以运送量为准，压力指标解释生存质量）")
+    print("-" * 108)
     print(
-        f"{'算法':18} {'均值':>7} {'D/min':>7} {'均候车':>8} {'峰值站':>7} "
-        f"{'载客率':>8} {'结束率':>7} {'无效率':>7}"
+        f"{'算法':18} {'均值':>7} {'D/min':>7} {'均候车':>7} {'风险峰':>7} "
+        f"{'最长等':>7} {'高危秒':>7} {'结束率':>7} {'无效率':>7}"
     )
     for item in summaries:
         print(
             f"{item.algorithm:18} {item.mean_deliveries:>7.2f} "
-            f"{item.mean_deliveries_per_minute:>7.2f} {item.mean_waiting_passengers:>8.2f} "
-            f"{item.mean_peak_station_queue:>7.2f} {item.mean_fleet_load_pct:>7.1f}% "
-            f"{item.game_over_rate:>6.0%} {item.invalid_action_rate:>6.1%}"
+            f"{item.mean_deliveries_per_minute:>7.2f} {item.mean_waiting_passengers:>7.2f} "
+            f"{item.mean_peak_risk_pct:>6.1f}% {item.mean_peak_wait_seconds:>6.1f}s "
+            f"{item.mean_high_risk_seconds:>7.1f} {item.game_over_rate:>6.0%} "
+            f"{item.invalid_action_rate:>6.1%}"
         )
     if artifacts is not None:
         print(f"\n📼 实验已保存：{artifacts.run_dir}")
@@ -424,20 +441,14 @@ def main() -> None:
         artifacts.finalize(results, summaries)
 
     if args.json:
-        print(
-            json.dumps(
-                {
-                    "engine_commit": ENGINE_COMMIT,
-                    "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
-                    "scenario": scenario,
-                    "artifacts_dir": str(artifacts.run_dir) if artifacts is not None else None,
-                    "results": [asdict(item) for item in results],
-                    "summaries": [asdict(item) for item in summaries],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        print(json.dumps({
+            "engine_commit": ENGINE_COMMIT,
+            "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "scenario": scenario,
+            "artifacts_dir": str(artifacts.run_dir) if artifacts is not None else None,
+            "results": [asdict(item) for item in results],
+            "summaries": [asdict(item) for item in summaries],
+        }, ensure_ascii=False, indent=2))
     else:
         _print_human(results, summaries, scenario, artifacts)
 
