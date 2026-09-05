@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Mini Metro Lab</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">MINI METRO LAB</div>
+        <h1>地铁算法观战室</h1>
+      </div>
+      <div class="top-metrics" aria-live="polite">
+        <div><span>运送</span><strong id="deliveries">0</strong></div>
+        <div><span>时间</span><strong id="time">00:00</strong></div>
+        <div><span>风险</span><strong id="risk">0%</strong></div>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <div class="map-panel">
+        <canvas id="metroCanvas" width="1280" height="720" aria-label="实时地铁网络"></canvas>
+        <div class="map-hud">
+          <span id="seed">Seed 42</span>
+          <span id="statusDot" class="status-dot"></span>
+          <span id="statusText">运行中</span>
+        </div>
+      </div>
+
+      <aside class="brain-panel">
+        <section class="brain-card primary">
+          <div class="section-label">🧠 当前算法</div>
+          <h2 id="algorithm">Greedy Planner V1</h2>
+          <div class="decision-title" id="decisionTitle">初始化</div>
+          <p id="decisionDetail">等待第一帧状态。</p>
+          <div class="action-chip" id="actionChip">NOOP</div>
+        </section>
+
+        <section class="brain-card">
+          <div class="section-label">网络资源</div>
+          <div class="resource-grid">
+            <div><span>线路</span><strong id="lineCount">0</strong></div>
+            <div><span>机车</span><strong id="locoCount">0</strong></div>
+            <div><span>车厢</span><strong id="carriageCount">0</strong></div>
+            <div><span>车站</span><strong id="stationCount">0</strong></div>
+          </div>
+        </section>
+
+        <section class="brain-card history-card">
+          <div class="section-label">最近决策</div>
+          <div id="history" class="history"><div class="empty">暂无重大调整</div></div>
+        </section>
+      </aside>
+    </section>
+
+    <footer class="controls">
+      <button id="pauseBtn" type="button">暂停</button>
+      <div class="speed-group" aria-label="速度">
+        <button class="speed active" data-speed="1" type="button">1×</button>
+        <button class="speed" data-speed="2" type="button">2×</button>
+        <button class="speed" data-speed="4" type="button">4×</button>
+      </div>
+      <div class="spacer"></div>
+      <button id="restartBtn" class="secondary" type="button">同种子重开</button>
+      <button id="randomBtn" class="secondary" type="button">随机新局</button>
+    </footer>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
