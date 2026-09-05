@@ -1,7 +1,8 @@
 import unittest
 
 from metro_lab.algorithms import create_planner, get_algorithm_spec
-from metro_lab.rescue_planner import BalancedGreedyV21Planner
+from metro_lab.planner import GreedyPlanner
+from metro_lab.rescue_planner import BalancedGreedyV21Planner, GreedyPressureV11Planner
 
 
 def observation(
@@ -66,11 +67,13 @@ def observation(
 
 
 class RescuePlannerTests(unittest.TestCase):
-    def test_candidate_is_registered(self):
-        spec = get_algorithm_spec("balanced-greedy-v2-1")
-        self.assertTrue(spec.available)
-        self.assertEqual(spec.status, "candidate")
-        self.assertIsInstance(create_planner(spec.id), BalancedGreedyV21Planner)
+    def test_both_rescue_candidates_are_registered(self):
+        v11 = get_algorithm_spec("greedy-v1-1-pressure")
+        v21 = get_algorithm_spec("balanced-greedy-v2-1")
+        self.assertTrue(v11.available and v21.available)
+        self.assertEqual(v11.status, v21.status, "candidate")
+        self.assertIsInstance(create_planner(v11.id), GreedyPressureV11Planner)
+        self.assertIsInstance(create_planner(v21.id), BalancedGreedyV21Planner)
 
     def test_single_line_absolute_pressure_can_add_locomotive(self):
         planner = BalancedGreedyV21Planner()
@@ -79,12 +82,31 @@ class RescuePlannerTests(unittest.TestCase):
         decision = planner.act(obs)
         self.assertEqual(decision.action, {"type": "assign_locomotive", "path_index": 0})
 
-    def test_wait_age_triggers_rescue_before_engine_deadline(self):
-        planner = BalancedGreedyV21Planner()
-        planner.reset(observation(time_ms=0, waiting=("old",)))
-        decision = planner.act(observation(time_ms=30_000, waiting=("old",)))
-        self.assertEqual(decision.action["type"], "assign_locomotive")
-        self.assertIn("30.0s", decision.detail)
+    def test_wait_age_triggers_same_rescue_on_v1_and_v2_topologies(self):
+        for planner_cls in (GreedyPressureV11Planner, BalancedGreedyV21Planner):
+            with self.subTest(planner=planner_cls.__name__):
+                planner = planner_cls()
+                planner.reset(observation(time_ms=0, waiting=("old",)))
+                decision = planner.act(observation(time_ms=30_000, waiting=("old",)))
+                self.assertEqual(decision.action["type"], "assign_locomotive")
+                self.assertIn("30.0s", decision.detail)
+
+    def test_v11_preserves_v1_parent_decision_before_rescue(self):
+        obs = observation(waiting=(), locomotives_available=0)
+        obs["structured"]["stations"].append(
+            {
+                "id": "s2",
+                "position": (50, 10),
+                "shape_type": "SQUARE",
+                "passenger_ids": [],
+                "passenger_count": 0,
+            }
+        )
+        baseline = GreedyPlanner()
+        candidate = GreedyPressureV11Planner()
+        baseline.reset(obs)
+        candidate.reset(obs)
+        self.assertEqual(candidate.act(obs).action, baseline.act(obs).action)
 
     def test_passenger_returning_to_station_starts_new_wait_episode(self):
         planner = BalancedGreedyV21Planner()
