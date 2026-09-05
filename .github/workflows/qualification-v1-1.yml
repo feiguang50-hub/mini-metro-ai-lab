@@ -1,0 +1,43 @@
+name: qualification-v1-1
+
+on:
+  workflow_dispatch:
+
+jobs:
+  frozen-holdout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv
+
+      - name: Bootstrap pinned engine
+        run: ./scripts/bootstrap.sh
+
+      # V1.1 qualification set. Frozen before any result from these seeds was
+      # observed. It is preserved as a manually reproducible historical gate,
+      # not an automatic CI cost. Never use this set to tune V1.1.
+      # Generated once with:
+      # random.Random(20260907).randrange(0, 2**31) repeated 20 times
+      - name: Classic V1.1 frozen holdout
+        run: |
+          .venv/bin/mini-metro-arena \
+            --scenario classic-v1 \
+            --algorithms greedy-v1 greedy-v1-1-pressure \
+            --seeds 955885281 812196228 1764253553 893571092 1063188876 1887191890 1105288969 536543304 1003129156 709726973 1507507560 1231813598 1602224257 62191199 1025379764 1598042447 237265742 516162689 145341697 256579013 \
+            --minutes 15 \
+            --no-save
+
+      - name: Stress V1.1 frozen holdout
+        run: |
+          .venv/bin/mini-metro-arena \
+            --scenario stress-v1 \
+            --algorithms greedy-v1 greedy-v1-1-pressure \
+            --seeds 955885281 812196228 1764253553 893571092 1063188876 1887191890 1105288969 536543304 1003129156 709726973 1507507560 1231813598 1602224257 62191199 1025379764 1598042447 237265742 516162689 145341697 256579013 \
+            --minutes 15 \
+            --no-save

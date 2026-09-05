@@ -4,7 +4,7 @@
 
 固定使用 [`yanfengliu/python_mini_metro`](https://github.com/yanfengliu/python_mini_metro) 的已验证提交作为底层模拟器，在其上提供中文观战、算法库、固定 Seed Arena、同步 Battle、版本化场景、压力指标、实验档案和回放。
 
-> 当前版本：**0.9.0 / Balanced Greedy V2.1 candidate + frozen holdout qualification**
+> 当前版本：**0.10.0 / heuristic generation frozen · search planning next**
 
 ## 30 秒启动
 
@@ -24,37 +24,40 @@ http://127.0.0.1:8765
 
 ## 🧠 算法库
 
-当前真正可运行的算法有三个：
+当前真正可运行的算法有四个：
 
 | ID | 算法 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | `greedy-v1` | Greedy Planner V1 | `baseline` | 几何距离 + 即时压力，当前默认基线 |
+| `greedy-v1-1-pressure` | Greedy V1.1 Pressure Rescue | `archived` | V1 拓扑 + 单次候车压力救火；资格赛与 V1 基本打平，保留为可运行研究样本 |
 | `balanced-greedy-v2` | Balanced Greedy V2 | `candidate` | 站型多样性、线路长度与压力的多目标启发式 |
 | `balanced-greedy-v2-1` | Balanced Greedy V2.1 Rescue | `candidate` | 修复 V2 单线扩容死区，并从公开 observation 重建候车年龄进行定点救火 |
 
 规划中但尚不可运行：Beam Search、MPC、MCTS、Policy + Value + Search、Recurrent PPO。
 
-浏览器算法库直接读取 `metro_lab/algorithms.py`。切换算法会保持当前 Seed 并重开同一局，便于肉眼公平比较。
+浏览器算法库直接读取 `metro_lab/algorithms.py`。切换算法会保持当前 Seed 并重开同一局，便于肉眼公平比较。归档算法仍然可以手动选择，不会因为“输了”而从历史里消失。
 
 ```bash
-./run.sh --algorithm balanced-greedy-v2-1
+./run.sh --algorithm greedy-v1-1-pressure
 ```
 
-### 为什么 V2.1 仍不是默认算法
+### 为什么默认仍是 Greedy V1
 
-5 个开发 Seeds 的 Stress V1 上，V2.1 曾达到 **106.0**，高于 V1 的 93.8；但参数冻结后，用 20 个事先生成、从未参与调参的 holdout Seeds 复测：
+V2.1 的冻结 Stress qualification 没有稳定击败 V1：20 个 holdout Seeds 上 V1 平均 **107.30**、V2.1 **103.75**，paired 为 **8 胜 / 11 负 / 1 平**。
 
-| Stress V1 holdout | Greedy V1 | Balanced V2.1 |
+V1.1 后续修复了“25 秒后连续倾倒整支车队”的过度救火问题，在新的 5-Seed 开发集上 Stress 从 V1 的 83.0 提升到 **85.8**。参数随即冻结，并启用另一套从未参与调参的 20-Seed qualification：
+
+| V1.1 frozen holdout | Greedy V1 | Greedy V1.1 |
 | --- | ---: | ---: |
-| 平均运送 | **107.30** | 103.75 |
-| D/min | **7.90** | 7.77 |
-| 平均候车 | 1.95 | 1.95 |
-| Peak Risk | **94.2%** | 97.2% |
-| 高危持续 | **28.0s** | 33.0s |
-| Game Over | 65% | 65% |
-| invalid rate | 39.6% | **32.2%** |
+| Classic 平均运送 | **39.75** | 39.70 |
+| Stress 平均运送 | 96.55 | **96.60** |
+| Stress 平均候车 | 2.00 | **1.93** |
+| Stress Peak Risk | 99.4% | **97.8%** |
+| Stress 高危持续 | 37.8s | **34.1s** |
+| Stress Game Over | 85% | 85% |
+| Stress invalid rate | **37.0%** | 39.5% |
 
-逐 Seed paired 结果为 **V2.1 8 胜 / 11 负 / 1 平**。因此 V2.1 被保留为有价值的 candidate，但 **Greedy V1 继续作为默认 baseline**。
+Stress paired 为 **2 胜 / 3 负 / 15 平**，中位差 0，均值只 +0.05；同时出现 `+46/+23` 和 `-42/-15/-11` 的双向大波动。结论是：Pressure Rescue 能救出部分危局，但不是稳定升级，因此 **V1.1 归档、Greedy V1 继续默认，heuristic 微调到此冻结**。
 
 完整实验演化、失败模式和资格赛纪律见 [`docs/algorithm-history.md`](docs/algorithm-history.md)。
 
@@ -91,7 +94,7 @@ CLI 也可直接对战：
 
 ```bash
 .venv/bin/mini-metro-battle \
-  greedy-v1 balanced-greedy-v2-1 \
+  greedy-v1 greedy-v1-1-pressure \
   --scenario stress-v1 \
   --seed 42 \
   --minutes 15
@@ -156,12 +159,12 @@ Arena、CLI Battle、浏览器 Battle 和单算法 Viewer 共用这套时间语�
 
 ## 🧪 冻结资格赛
 
-从 V2.1 起，算法实验明确区分：
+算法实验明确区分：
 
 - **development seeds**：允许诊断和修改算法；
 - **holdout qualification seeds**：参数冻结后才运行，看到结果后禁止反向调同一版本。
 
-V2.1 的 20 个 holdout Seeds 由固定 master seed `20260905` 预先生成并写入 CI，再运行结果。这是为了避免“挑顺眼的 Seeds 刷榜”。
+V2.1 与 V1.1 都拥有各自独立、预先冻结的 20-Seed qualification。已结束算法的资格赛保留为 `workflow_dispatch` 手动可复现工作流，不在普通 PR 上反复烧完整研究预算。
 
 新冠军必须同时满足：开发集有改进、冻结资格赛能复现、Classic 不出现不可接受回退、健康指标没有隐藏灾难。
 
@@ -225,7 +228,7 @@ metro_lab/
   algorithms.py          # 算法注册表
   planner.py             # Greedy V1
   balanced_planner.py    # Balanced V2
-  rescue_planner.py      # Balanced V2.1 Rescue
+  rescue_planner.py      # V1.1 / V2.1 Pressure Rescue
   scenarios.py           # Classic / Stress 场景注册表
   simulation.py          # Protocol V2
   pressure.py            # Passenger Pressure
@@ -250,16 +253,17 @@ tests/
 
 ## 测试与 CI
 
-GitHub Actions 会真实执行：
+普通 GitHub Actions 会真实执行：
 
 1. 前端行为测试；
 2. Shell 语法检查；
 3. 下载并 checkout 固定上游引擎；
 4. Python 编译与完整单测 / 真实引擎 smoke；
 5. 同算法同 Seed 严格平局与 fixed-dt 回归；
-6. Classic / Stress 开发 benchmark；
-7. V2.1 冻结 Classic / Stress 20-Seed holdout qualification；
-8. HTTP 单算法和双算法真实请求 smoke。
+6. Classic / Stress 小型开发 benchmark；
+7. HTTP 单算法和双算法真实请求 smoke。
+
+冻结资格赛独立保存为手动研究门禁，避免文档或前端改动重复跑几十个长局。
 
 ## 固定上游版本
 
