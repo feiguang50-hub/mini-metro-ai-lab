@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
+from .balanced_planner import BalancedGreedyPlanner
 from .planner import GreedyPlanner
 
 PlannerFactory = Callable[[], Any]
@@ -48,10 +49,11 @@ ALGORITHM_SPECS: tuple[AlgorithmSpec, ...] = (
         id="balanced-greedy-v2",
         name="Balanced Greedy V2",
         family="启发式",
-        version="0.x",
-        status="planned",
-        summary="计划加入站型稀缺性、换乘价值、线路均衡和拥堵风险。",
-        tags=("开发中", "多目标"),
+        version="2.0-candidate",
+        status="candidate",
+        summary="同时考虑站型多样性、线路长度、客流压力和网络分流机会的多目标启发式。",
+        tags=("候选", "多目标", "可解释"),
+        factory=BalancedGreedyPlanner,
     ),
     AlgorithmSpec(
         id="beam-search",
