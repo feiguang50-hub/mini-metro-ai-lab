@@ -6,13 +6,30 @@ from pathlib import Path
 
 from metro_lab.arena import EpisodeResult, run_episode, summarize
 from metro_lab.config import ENGINE_SRC
+from metro_lab.simulation import SIMULATION_PROTOCOL_VERSION
 
 
 class ArenaPureTests(unittest.TestCase):
     def test_summary_ranks_by_mean_deliveries(self):
         results = [
-            EpisodeResult("a", 1, 10, 0, 1000, 10, False, 0),
-            EpisodeResult("a", 2, 20, 0, 1000, 10, False, 1),
+            EpisodeResult(
+                "a", 1, 10, 0, 1000, 10, False, 0,
+                deliveries_per_minute=600.0,
+                average_waiting_passengers=3.0,
+                peak_network_waiting=5,
+                peak_station_queue=4,
+                average_fleet_load_pct=50.0,
+                non_noop_actions=2,
+            ),
+            EpisodeResult(
+                "a", 2, 20, 0, 1000, 10, False, 1,
+                deliveries_per_minute=1200.0,
+                average_waiting_passengers=5.0,
+                peak_network_waiting=7,
+                peak_station_queue=6,
+                average_fleet_load_pct=70.0,
+                non_noop_actions=3,
+            ),
             EpisodeResult("b", 1, 8, 0, 1000, 10, True, 0),
             EpisodeResult("b", 2, 9, 0, 1000, 10, True, 0),
         ]
@@ -20,6 +37,10 @@ class ArenaPureTests(unittest.TestCase):
         self.assertEqual([item.algorithm for item in summaries], ["a", "b"])
         self.assertEqual(summaries[0].mean_deliveries, 15.0)
         self.assertEqual(summaries[0].invalid_actions, 1)
+        self.assertEqual(summaries[0].mean_waiting_passengers, 4.0)
+        self.assertEqual(summaries[0].mean_peak_station_queue, 5.0)
+        self.assertEqual(summaries[0].mean_fleet_load_pct, 60.0)
+        self.assertEqual(summaries[0].invalid_action_rate, 0.2)
         self.assertEqual(summaries[1].game_over_rate, 1.0)
 
 
@@ -29,9 +50,14 @@ class ArenaEngineTests(unittest.TestCase):
         result = run_episode("greedy-v1", 42, minutes=0.02)
         self.assertEqual(result.algorithm, "greedy-v1")
         self.assertEqual(result.seed, 42)
-        self.assertGreater(result.steps, 0)
-        self.assertGreater(result.simulated_ms, 0)
+        self.assertEqual(result.protocol_version, SIMULATION_PROTOCOL_VERSION)
+        self.assertEqual(result.simulated_ms, 1200)
+        self.assertEqual(result.steps, 12)
         self.assertGreaterEqual(result.deliveries, 0)
+        self.assertGreaterEqual(result.average_waiting_passengers, 0)
+        self.assertGreaterEqual(result.peak_station_queue, 0)
+        self.assertGreaterEqual(result.average_fleet_load_pct, 0)
+        self.assertGreaterEqual(result.max_stations, 2)
 
     def test_short_episode_records_replay(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -48,6 +74,7 @@ class ArenaEngineTests(unittest.TestCase):
                 rows = [json.loads(line) for line in handle]
             self.assertEqual(rows[0]["type"], "header")
             self.assertEqual(rows[0]["algorithm"], "greedy-v1")
+            self.assertEqual(rows[0]["simulation_protocol"], SIMULATION_PROTOCOL_VERSION)
             self.assertTrue(any(row.get("type") == "frame" for row in rows[1:]))
 
 
