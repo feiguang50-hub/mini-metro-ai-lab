@@ -36,17 +36,17 @@ jobs:
       - name: Unit + engine smoke tests
         run: .venv/bin/python -m unittest discover -s tests -v
 
-      # Small development set only. Frozen qualification suites live in their
-      # own versioned workflow so documentation/frontend changes do not burn a
-      # full research campaign. New champion candidates must add/run a fresh
-      # qualification suite before promotion.
+      # Development seeds for the V2.2 research generation. Generated once
+      # before seeing V2.2 results with:
+      # random.Random(20260906).sample(range(1, 2147483647), 5)
+      # These are NOT qualification seeds and may be used for diagnosis.
       - name: Classic candidate benchmark
         if: github.event_name == 'pull_request'
         run: |
           .venv/bin/mini-metro-arena \
             --scenario classic-v1 \
-            --algorithms greedy-v1 balanced-greedy-v2 balanced-greedy-v2-1 \
-            --seeds 42 314 2026 4096 65537 \
+            --algorithms greedy-v1 balanced-greedy-v2 balanced-greedy-v2-1 balanced-greedy-v2-2 \
+            --seeds 1907374266 805162878 657531977 978077348 1255654432 \
             --minutes 15 \
             --no-save
 
@@ -55,8 +55,8 @@ jobs:
         run: |
           .venv/bin/mini-metro-arena \
             --scenario stress-v1 \
-            --algorithms greedy-v1 balanced-greedy-v2 balanced-greedy-v2-1 \
-            --seeds 42 314 2026 4096 65537 \
+            --algorithms greedy-v1 balanced-greedy-v2 balanced-greedy-v2-1 balanced-greedy-v2-2 \
+            --seeds 1907374266 805162878 657531977 978077348 1255654432 \
             --minutes 15 \
             --no-save
 
