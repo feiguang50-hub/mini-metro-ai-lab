@@ -67,11 +67,12 @@ def observation(
 
 
 class RescuePlannerTests(unittest.TestCase):
-    def test_both_rescue_candidates_are_registered(self):
+    def test_rescue_algorithms_remain_runnable_with_distinct_research_status(self):
         v11 = get_algorithm_spec("greedy-v1-1-pressure")
         v21 = get_algorithm_spec("balanced-greedy-v2-1")
         self.assertTrue(v11.available and v21.available)
-        self.assertEqual(v11.status, v21.status, "candidate")
+        self.assertEqual(v11.status, "archived")
+        self.assertEqual(v21.status, "candidate")
         self.assertIsInstance(create_planner(v11.id), GreedyPressureV11Planner)
         self.assertIsInstance(create_planner(v21.id), BalancedGreedyV21Planner)
 
