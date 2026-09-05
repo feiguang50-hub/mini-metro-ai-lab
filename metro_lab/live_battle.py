@@ -10,6 +10,7 @@ from .algorithms import available_algorithm_ids, create_planner, get_algorithm_s
 from .config import ENGINE_COMMIT, TICK_MS
 from .engine import _jsonable, _load_engine
 from .planner import Decision
+from .pressure import passenger_pressure
 from .simulation import SIMULATION_PROTOCOL_VERSION, advance_fixed_dt
 from .viewer_scenario import (
     advance_timed_station_progression,
@@ -74,7 +75,6 @@ class BattleRuntime:
             else:
                 raise ValueError(f"unknown battle command: {command}")
             Env, engine_config = _load_engine()
-            # Build both environments before replacing a running session.
             sides = []
             for key in ("left", "right"):
                 env = Env(dt_ms=config["dt_ms"], reward_mode="deliveries")
@@ -124,7 +124,6 @@ class BattleRuntime:
                         or all(side["done"] for side in self._sides)):
                     self._status = "finished"
             except Exception as exc:
-                # A partial round must never be presented as synchronized progress.
                 self._status = "error"
                 self._error = f"对战停止：{exc}"
 
@@ -146,19 +145,31 @@ class BattleRuntime:
                 return result
             for key, side in zip(("left", "right"), self._sides):
                 game = _jsonable(side["obs"]["structured"])
-                threshold = int(getattr(side["env"].mediator, "overdue_passenger_threshold", 10))
-                waiting = max((int(s.get("passenger_count", 0)) for s in game.get("stations", [])), default=0)
+                pressure = passenger_pressure(side["env"])
                 spec = get_algorithm_spec(self._config[key])
                 result[key] = dict(
                     engine=dict(commit=ENGINE_COMMIT,
                                 screen_width=int(getattr(self._engine_config, "screen_width", 1920)),
                                 screen_height=int(getattr(self._engine_config, "screen_height", 1080))),
-                    runtime=dict(algorithm_id=spec.id, algorithm=spec.name, algorithm_status=spec.status,
-                                 seed=self._config["seed"], risk=min(100, round(waiting / max(1, threshold) * 100)),
-                                 overdue_threshold=threshold, invalid_actions=side["invalid"],
-                                 status="game_over" if side["done"] else self._status),
+                    runtime=dict(
+                        algorithm_id=spec.id,
+                        algorithm=spec.name,
+                        algorithm_status=spec.status,
+                        seed=self._config["seed"],
+                        risk=pressure.risk_pct,
+                        overdue_threshold=pressure.overdue_passenger_threshold,
+                        overdue_passengers=pressure.overdue_passengers,
+                        at_risk_passengers=pressure.at_risk_passengers,
+                        max_wait_ms=pressure.max_wait_ms,
+                        passenger_max_wait_time_ms=pressure.passenger_max_wait_time_ms,
+                        at_risk_wait_ms=pressure.at_risk_wait_ms,
+                        invalid_actions=side["invalid"],
+                        status="game_over" if side["done"] else self._status,
+                    ),
                     progression=timed_station_status(side["env"]),
-                    game=game, decision=_jsonable(asdict(side["decision"])))
+                    game=game,
+                    decision=_jsonable(asdict(side["decision"])),
+                )
             margin = result["left"]["game"].get("deliveries", 0) - result["right"]["game"].get("deliveries", 0)
             result.update(delivery_margin=abs(margin), leader="left" if margin > 0 else "right" if margin < 0 else "tie")
             return result
