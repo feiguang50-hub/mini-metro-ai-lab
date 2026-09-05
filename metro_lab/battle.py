@@ -12,6 +12,7 @@ from .config import ENGINE_COMMIT, ROOT, TICK_MS
 from .engine import _jsonable, _load_engine
 from .experiments import ReplayWriter
 from .planner import Decision
+from .simulation import SIMULATION_PROTOCOL_VERSION, advance_fixed_dt
 
 DEFAULT_BATTLE_ROOT = ROOT / "output" / "battles"
 
@@ -112,6 +113,7 @@ def run_battle(
         "dt_ms": int(dt_ms),
         "minutes": float(minutes),
         "sample_every_ms": int(replay_sample_ms),
+        "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
     }).start() if left_replay is not None else None
     right_writer = ReplayWriter(right_replay, {
         "mode": "battle",
@@ -122,6 +124,7 @@ def run_battle(
         "dt_ms": int(dt_ms),
         "minutes": float(minutes),
         "sample_every_ms": int(replay_sample_ms),
+        "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
     }).start() if right_replay is not None else None
 
     start_decision = Decision({"type": "noop"}, "Battle start", f"Seed {int(seed)}")
@@ -136,13 +139,13 @@ def run_battle(
             left_ok = True
             right_ok = True
             if not left_done:
-                left_obs, _reward, left_done, left_info = left_env.step(left_decision.action, dt_ms=dt_ms)
-                left_ok = bool(left_info.get("action_ok", False))
+                outcome = advance_fixed_dt(left_env, left_obs, left_decision.action, dt_ms=dt_ms)
+                left_obs, left_done, left_ok = outcome.observation, outcome.done, outcome.action_ok
                 if left_decision.action.get("type") != "noop" and not left_ok:
                     left_invalid += 1
             if not right_done:
-                right_obs, _reward, right_done, right_info = right_env.step(right_decision.action, dt_ms=dt_ms)
-                right_ok = bool(right_info.get("action_ok", False))
+                outcome = advance_fixed_dt(right_env, right_obs, right_decision.action, dt_ms=dt_ms)
+                right_obs, right_done, right_ok = outcome.observation, outcome.done, outcome.action_ok
                 if right_decision.action.get("type") != "noop" and not right_ok:
                     right_invalid += 1
 
@@ -188,6 +191,7 @@ def save_battle(result: BattleResult, *, output_root: Path, minutes: float, dt_m
     run_dir.mkdir(parents=True)
     payload = {
         "schema_version": 1,
+        "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
         "engine_commit": ENGINE_COMMIT,
         "minutes": float(minutes),
         "dt_ms": int(dt_ms),
@@ -236,10 +240,15 @@ def main() -> None:
     run_dir = None if args.no_save else save_battle(result, output_root=args.output_dir, minutes=args.minutes, dt_ms=args.dt_ms)
 
     if args.json:
-        print(json.dumps({"engine_commit": ENGINE_COMMIT, "run_dir": str(run_dir) if run_dir else None, "result": asdict(result)}, ensure_ascii=False, indent=2))
+        print(json.dumps({
+            "engine_commit": ENGINE_COMMIT,
+            "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "run_dir": str(run_dir) if run_dir else None,
+            "result": asdict(result),
+        }, ensure_ascii=False, indent=2))
         return
 
-    print("\n🏁 Mini Metro AI Battle")
+    print("\n🏁 Mini Metro AI Battle · Protocol V2")
     print("=" * 64)
     print(f"Seed {result.seed} · {result.left.algorithm} vs {result.right.algorithm}")
     print(f"左侧：{result.left.deliveries} deliveries · {'Game Over' if result.left.game_over else 'alive'}")
