@@ -118,6 +118,18 @@ The public `greedy-v1` baseline now runs through this adapter and `ContractGreed
 
 This is the first production execution path to use Problem + Action Contracts end to end.
 
+## Benchmark Contract V1
+
+`metro_lab.benchmark` makes algorithm compute cost a first-class experiment dimension.
+
+The Arena now measures planner construction/reset and every decision call, and records mean, p95 and maximum decision latency plus total planner compute. Optional per-decision and per-episode wall-clock budgets produce explicit compliance data.
+
+Solution quality and compute cost remain separate outputs. The platform does not manufacture a weighted score that hides the trade-off between a stronger solution and a more expensive algorithm.
+
+Wall-clock compute results are hardware-sensitive and should be compared on the same runner. V1 audits budget compliance but deliberately does not forcibly interrupt in-process Python algorithms; hard limits require a later isolated process runner.
+
+The full rules are documented in `docs/benchmark-contract.md`.
+
 ## Migration rule
 
 Balanced / Rescue planners remain untouched until each algorithm is migrated deliberately. They still use the legacy structured observation.
@@ -126,9 +138,10 @@ Balanced / Rescue planners remain untouched until each algorithm is migrated del
 
 ## Next contract milestones
 
-1. expose explicit compute budgets and decision latency in the benchmark contract;
-2. add a first-class plugin loading/discovery path with validation before an algorithm can enter experiments;
+1. add a first-class plugin loading/discovery path with validation before an algorithm can enter experiments;
+2. add native Windows bootstrap and Windows CI so the experiment harness is first-class on Windows rather than WSL-only;
 3. define problem families rather than a single difficulty axis;
-4. keep Viewer/Battle as diagnostic instruments over the same experiment state rather than separate game logic;
-5. migrate additional algorithms only when doing so improves the platform boundary rather than creating churn;
-6. remove migration-only backend index fields in a future Problem Contract revision once legacy algorithms no longer depend on them.
+4. evolve Viewer/Battle into research diagnostics over the same benchmark state, including compute and future search information;
+5. introduce an isolated algorithm runner before claiming hard compute-budget enforcement;
+6. migrate additional algorithms only when doing so improves the platform boundary rather than creating churn;
+7. remove migration-only backend index fields in a future Problem Contract revision once legacy algorithms no longer depend on them.

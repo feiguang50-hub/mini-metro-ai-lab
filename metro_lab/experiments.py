@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from .benchmark import BENCHMARK_CONTRACT_VERSION
 from .config import ENGINE_COMMIT, ROOT
 from .scenarios import DEFAULT_SCENARIO_ID, get_scenario_spec
 from .simulation import SIMULATION_PROTOCOL_VERSION
@@ -113,6 +114,8 @@ class ExperimentArtifacts:
         dt_ms: int,
         replay_sample_ms: int,
         scenario: str = DEFAULT_SCENARIO_ID,
+        decision_budget_ms: float | None = None,
+        episode_compute_budget_ms: float | None = None,
     ) -> "ExperimentArtifacts":
         scenario_spec = get_scenario_spec(scenario)
         output_root = Path(output_root)
@@ -131,6 +134,7 @@ class ExperimentArtifacts:
         config = {
             "schema_version": SCHEMA_VERSION,
             "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "benchmark_contract": BENCHMARK_CONTRACT_VERSION,
             "scenario": scenario_spec.public(),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "engine_commit": ENGINE_COMMIT,
@@ -139,6 +143,10 @@ class ExperimentArtifacts:
             "minutes": float(minutes),
             "dt_ms": int(dt_ms),
             "replay_sample_ms": int(replay_sample_ms),
+            "compute_budget": {
+                "decision_ms": decision_budget_ms,
+                "episode_ms": episode_compute_budget_ms,
+            },
         }
         (run_dir / "config.json").write_text(
             json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -154,6 +162,7 @@ class ExperimentArtifacts:
         payload = {
             "schema_version": SCHEMA_VERSION,
             "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "benchmark_contract": BENCHMARK_CONTRACT_VERSION,
             "scenario": self.config["scenario"],
             "run_id": self.run_id,
             "config": self.config,
@@ -179,18 +188,25 @@ class ExperimentArtifacts:
 
     def _write_summary(self, rows: list[dict[str, Any]]) -> None:
         scenario = self.config["scenario"]
+        compute_budget = self.config.get("compute_budget", {})
+        decision_budget = compute_budget.get("decision_ms")
+        episode_budget = compute_budget.get("episode_ms")
+        decision_budget_text = "unbounded" if decision_budget is None else f"{decision_budget} ms/decision"
+        episode_budget_text = "unbounded" if episode_budget is None else f"{episode_budget} ms/episode"
         lines = [
             f"# Arena Experiment · {self.run_id}",
             "",
             f"- Engine: `{ENGINE_COMMIT}`",
             f"- Simulation protocol: `v{SIMULATION_PROTOCOL_VERSION}`",
+            f"- Benchmark contract: `v{BENCHMARK_CONTRACT_VERSION}`",
             f"- Scenario: `{scenario['id']}` · {scenario['name']}",
             f"- Algorithms: {', '.join(f'`{item}`' for item in self.config['algorithms'])}",
             f"- Seeds: {', '.join(str(item) for item in self.config['seeds'])}",
-            f"- Budget: {self.config['minutes']} min / seed",
+            f"- Simulation budget: {self.config['minutes']} min / seed",
+            f"- Compute budget: {decision_budget_text}; {episode_budget_text}",
             f"- Step: {self.config['dt_ms']} ms",
             "",
-            "## Ranking",
+            "## Solution-quality ranking",
             "",
             "| Algorithm | Deliveries | D/min | Avg waiting | Peak risk | Peak wait | High-risk s | Game over | Invalid rate |",
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -212,6 +228,29 @@ class ExperimentArtifacts:
                     invalid_action_rate=float(row.get("invalid_action_rate", 0)),
                 )
             )
+
+        lines.extend([
+            "",
+            "## Compute cost",
+            "",
+            "| Algorithm | Mean decision ms | Mean p95 ms | Max decision ms | Compute ms / simulated min | Decision budget violations | Episode compliance |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ])
+        for row in rows:
+            lines.append(
+                "| {algorithm} | {mean_decision_ms:.4f} | {mean_p95_decision_ms:.4f} | "
+                "{max_decision_ms:.4f} | {mean_compute_ms_per_sim_minute:.3f} | "
+                "{decision_budget_violation_rate:.1%} | {compute_budget_compliance_rate:.1%} |".format(
+                    algorithm=row.get("algorithm", "?"),
+                    mean_decision_ms=float(row.get("mean_decision_ms", 0)),
+                    mean_p95_decision_ms=float(row.get("mean_p95_decision_ms", 0)),
+                    max_decision_ms=float(row.get("max_decision_ms", 0)),
+                    mean_compute_ms_per_sim_minute=float(row.get("mean_compute_ms_per_sim_minute", 0)),
+                    decision_budget_violation_rate=float(row.get("decision_budget_violation_rate", 0)),
+                    compute_budget_compliance_rate=float(row.get("compute_budget_compliance_rate", 1)),
+                )
+            )
+
         lines.extend([
             "",
             "## Metric notes",
@@ -220,13 +259,17 @@ class ExperimentArtifacts:
             "- `Peak risk`: progress toward the engine's actual game-over condition, based on the most endangered N passengers where N is the overdue-passenger threshold.",
             "- `Peak wait`: maximum station-passenger wait clock observed in the episode.",
             "- `High-risk s`: simulated seconds spent at or above 75% failure risk.",
+            "- Planner compute includes planner construction/reset plus every decision call, so expensive precomputation cannot be hidden outside `act`.",
+            "- Decision latency is wall-clock time. It is meaningful for comparisons on the same machine/runner configuration, not as a hardware-independent constant.",
+            "- Benchmark Contract V1 records compute-budget violations but does not forcibly terminate an in-process algorithm; hard timeouts require process isolation.",
+            "- Solution quality and compute cost are reported separately. The platform does not manufacture a weighted composite score.",
             "- The pinned engine ends a game when enough passengers, potentially on different stations, have individually waited past the maximum wait time. Peak station queue is recorded in JSON/CSV but is not itself the failure rule.",
             "- A rejected planner action still consumes the round as a noop under Simulation Protocol V2.",
             "- Results from different scenario IDs are not directly interchangeable.",
             "",
             "## Files",
             "",
-            "- `config.json`: exact experiment inputs, scenario and simulation protocol",
+            "- `config.json`: exact experiment inputs, scenario, simulation protocol, benchmark contract and compute budgets",
             "- `results.json`: machine-readable episode results and summaries",
             "- `episodes.csv`: one row per algorithm × seed episode",
             "- `replays/*.jsonl.gz`: sampled game states plus every non-noop decision",

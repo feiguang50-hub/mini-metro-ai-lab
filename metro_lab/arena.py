@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .algorithms import DEFAULT_ALGORITHM_ID, available_algorithm_ids, create_planner
+from .benchmark import BENCHMARK_CONTRACT_VERSION, ComputeBudget, PlannerComputeProfiler
 from .config import ENGINE_COMMIT, TICK_MS
 from .engine import _jsonable, _load_engine
 from .experiments import DEFAULT_EXPERIMENT_ROOT, ExperimentArtifacts, ReplayWriter
@@ -55,6 +56,20 @@ class EpisodeResult:
     max_carriages_assigned: int = 0
     non_noop_actions: int = 0
     topology_actions: int = 0
+    benchmark_contract_version: int = BENCHMARK_CONTRACT_VERSION
+    setup_compute_ms: float = 0.0
+    decision_calls: int = 0
+    decision_compute_ms: float = 0.0
+    planner_compute_ms: float = 0.0
+    compute_ms_per_sim_minute: float = 0.0
+    mean_decision_ms: float = 0.0
+    p95_decision_ms: float = 0.0
+    max_decision_ms: float = 0.0
+    decision_budget_ms: float | None = None
+    episode_compute_budget_ms: float | None = None
+    decision_budget_violations: int = 0
+    episode_compute_budget_exceeded: bool = False
+    compute_budget_compliant: bool = True
 
 
 @dataclass(frozen=True)
@@ -81,6 +96,14 @@ class AlgorithmSummary:
     mean_peak_overdue_passengers: float = 0.0
     non_noop_actions: int = 0
     invalid_action_rate: float = 0.0
+    mean_setup_compute_ms: float = 0.0
+    mean_planner_compute_ms: float = 0.0
+    mean_compute_ms_per_sim_minute: float = 0.0
+    mean_decision_ms: float = 0.0
+    mean_p95_decision_ms: float = 0.0
+    max_decision_ms: float = 0.0
+    decision_budget_violation_rate: float = 0.0
+    compute_budget_compliance_rate: float = 1.0
 
 
 def _record_frame(
@@ -110,6 +133,7 @@ def run_episode(
     scenario: str = DEFAULT_SCENARIO_ID,
     replay_path: Path | None = None,
     replay_sample_ms: int = 1_000,
+    compute_budget: ComputeBudget | None = None,
 ) -> EpisodeResult:
     if algorithm not in available_algorithm_ids():
         raise ValueError(f"unknown or unavailable algorithm: {algorithm}")
@@ -126,8 +150,15 @@ def run_episode(
     observation = env.reset(seed=int(seed))
     if configure_scenario(env, scenario):
         observation = env.observe()
-    planner = create_planner(algorithm)
-    planner.reset(observation)
+
+    profiler = PlannerComputeProfiler(compute_budget)
+
+    def _setup_planner():
+        planner = create_planner(algorithm)
+        planner.reset(observation)
+        return planner
+
+    planner = profiler.measure_setup(_setup_planner)
 
     telemetry = EpisodeTelemetry()
     telemetry.observe_initial(observation, passenger_pressure(env))
@@ -148,6 +179,8 @@ def run_episode(
                 "minutes": float(minutes),
                 "sample_every_ms": int(replay_sample_ms),
                 "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+                "benchmark_contract": BENCHMARK_CONTRACT_VERSION,
+                "compute_budget": profiler.budget.public(),
             },
         ).start()
         from .planner import Decision
@@ -162,7 +195,7 @@ def run_episode(
 
     try:
         for _ in range(max_steps):
-            decision = planner.act(observation)
+            decision = profiler.measure_decision(lambda: planner.act(observation))
             action_type = decision.action.get("type")
             telemetry.record_action(action_type)
 
@@ -214,6 +247,13 @@ def run_episode(
     deliveries_per_minute = (
         deliveries / (simulated_ms / 60_000) if simulated_ms > 0 else 0.0
     )
+    compute = profiler.snapshot()
+    compute_ms_per_sim_minute = (
+        compute.planner_compute_ms / (simulated_ms / 60_000)
+        if simulated_ms > 0
+        else 0.0
+    )
+
     return EpisodeResult(
         algorithm=algorithm,
         seed=int(seed),
@@ -245,6 +285,20 @@ def run_episode(
         max_carriages_assigned=telemetry.max_carriages_assigned,
         non_noop_actions=telemetry.non_noop_actions,
         topology_actions=telemetry.topology_actions,
+        benchmark_contract_version=compute.benchmark_contract_version,
+        setup_compute_ms=compute.setup_compute_ms,
+        decision_calls=compute.decision_calls,
+        decision_compute_ms=compute.decision_compute_ms,
+        planner_compute_ms=compute.planner_compute_ms,
+        compute_ms_per_sim_minute=round(compute_ms_per_sim_minute, 6),
+        mean_decision_ms=compute.mean_decision_ms,
+        p95_decision_ms=compute.p95_decision_ms,
+        max_decision_ms=compute.max_decision_ms,
+        decision_budget_ms=compute.decision_budget_ms,
+        episode_compute_budget_ms=compute.episode_compute_budget_ms,
+        decision_budget_violations=compute.decision_budget_violations,
+        episode_compute_budget_exceeded=compute.episode_compute_budget_exceeded,
+        compute_budget_compliant=compute.compute_budget_compliant,
     )
 
 
@@ -258,6 +312,10 @@ def summarize(results: list[EpisodeResult]) -> list[AlgorithmSummary]:
         scores = [episode.deliveries for episode in episodes]
         non_noop_actions = sum(episode.non_noop_actions for episode in episodes)
         invalid_actions = sum(episode.invalid_actions for episode in episodes)
+        decision_calls = sum(episode.decision_calls for episode in episodes)
+        decision_budget_violations = sum(
+            episode.decision_budget_violations for episode in episodes
+        )
         summaries.append(
             AlgorithmSummary(
                 algorithm=algorithm,
@@ -307,6 +365,36 @@ def summarize(results: list[EpisodeResult]) -> list[AlgorithmSummary]:
                     invalid_actions / non_noop_actions if non_noop_actions else 0.0,
                     4,
                 ),
+                mean_setup_compute_ms=round(
+                    statistics.fmean(episode.setup_compute_ms for episode in episodes), 6
+                ),
+                mean_planner_compute_ms=round(
+                    statistics.fmean(episode.planner_compute_ms for episode in episodes), 6
+                ),
+                mean_compute_ms_per_sim_minute=round(
+                    statistics.fmean(
+                        episode.compute_ms_per_sim_minute for episode in episodes
+                    ),
+                    6,
+                ),
+                mean_decision_ms=round(
+                    statistics.fmean(episode.mean_decision_ms for episode in episodes), 6
+                ),
+                mean_p95_decision_ms=round(
+                    statistics.fmean(episode.p95_decision_ms for episode in episodes), 6
+                ),
+                max_decision_ms=round(
+                    max(episode.max_decision_ms for episode in episodes), 6
+                ),
+                decision_budget_violation_rate=round(
+                    decision_budget_violations / decision_calls if decision_calls else 0.0,
+                    6,
+                ),
+                compute_budget_compliance_rate=round(
+                    sum(episode.compute_budget_compliant for episode in episodes)
+                    / len(episodes),
+                    6,
+                ),
             )
         )
     return sorted(
@@ -328,6 +416,7 @@ def run_suite(
     minutes: float,
     dt_ms: int = TICK_MS,
     scenario: str = DEFAULT_SCENARIO_ID,
+    compute_budget: ComputeBudget | None = None,
 ) -> tuple[list[EpisodeResult], list[AlgorithmSummary]]:
     if not algorithms:
         raise ValueError("at least one algorithm is required")
@@ -336,7 +425,14 @@ def run_suite(
     get_scenario_spec(scenario)
 
     results = [
-        run_episode(algorithm, seed, minutes=minutes, dt_ms=dt_ms, scenario=scenario)
+        run_episode(
+            algorithm,
+            seed,
+            minutes=minutes,
+            dt_ms=dt_ms,
+            scenario=scenario,
+            compute_budget=compute_budget,
+        )
         for algorithm in algorithms
         for seed in seeds
     ]
@@ -351,6 +447,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--scenario", default=DEFAULT_SCENARIO_ID, choices=scenario_ids(), help="版本化 benchmark 场景")
     parser.add_argument("--minutes", type=float, default=15.0, help="每局最多模拟多少分钟")
     parser.add_argument("--dt-ms", type=int, default=TICK_MS, help="模拟步长，默认与实时观战一致")
+    parser.add_argument("--decision-budget-ms", type=float, default=None, help="每次算法决策墙钟预算；V1 记录超预算但不强制中断")
+    parser.add_argument("--episode-compute-budget-ms", type=float, default=None, help="每局算法总计算墙钟预算，包含构造/reset；V1 记录合规性")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_EXPERIMENT_ROOT, help="实验结果目录，默认 output/experiments")
     parser.add_argument("--no-save", action="store_true", help="只输出终端结果，不保存实验目录")
     parser.add_argument("--no-replays", action="store_true", help="保存结果，但不记录回放")
@@ -394,6 +492,22 @@ def _print_human(
             f"{item.mean_high_risk_seconds:>7.1f} {item.game_over_rate:>6.0%} "
             f"{item.invalid_action_rate:>6.1%}"
         )
+
+    print("\n计算成本（墙钟时间；只应在同一机器/runner 条件下横向比较）")
+    print("-" * 108)
+    print(
+        f"{'算法':18} {'均决策ms':>10} {'均p95ms':>10} {'最大ms':>10} "
+        f"{'ms/模拟分':>11} {'预算违规':>9} {'局合规率':>9}"
+    )
+    for item in summaries:
+        print(
+            f"{item.algorithm:18} {item.mean_decision_ms:>10.4f} "
+            f"{item.mean_p95_decision_ms:>10.4f} {item.max_decision_ms:>10.4f} "
+            f"{item.mean_compute_ms_per_sim_minute:>11.3f} "
+            f"{item.decision_budget_violation_rate:>8.1%} "
+            f"{item.compute_budget_compliance_rate:>8.1%}"
+        )
+
     if artifacts is not None:
         print(f"\n📼 实验已保存：{artifacts.run_dir}")
 
@@ -402,6 +516,14 @@ def main() -> None:
     args = _parser().parse_args()
     if args.replay_sample_ms <= 0:
         raise SystemExit("--replay-sample-ms 必须大于 0")
+
+    try:
+        compute_budget = ComputeBudget(
+            decision_ms=args.decision_budget_ms,
+            episode_ms=args.episode_compute_budget_ms,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     algorithms = list(args.algorithms)
     seeds = list(args.seeds)
@@ -416,6 +538,8 @@ def main() -> None:
             dt_ms=args.dt_ms,
             replay_sample_ms=args.replay_sample_ms,
             scenario=scenario,
+            decision_budget_ms=compute_budget.decision_ms,
+            episode_compute_budget_ms=compute_budget.episode_ms,
         )
 
     results: list[EpisodeResult] = []
@@ -433,6 +557,7 @@ def main() -> None:
                     scenario=scenario,
                     replay_path=replay_path,
                     replay_sample_ms=args.replay_sample_ms,
+                    compute_budget=compute_budget,
                 )
             )
 
@@ -444,6 +569,8 @@ def main() -> None:
         print(json.dumps({
             "engine_commit": ENGINE_COMMIT,
             "simulation_protocol": SIMULATION_PROTOCOL_VERSION,
+            "benchmark_contract": BENCHMARK_CONTRACT_VERSION,
+            "compute_budget": compute_budget.public(),
             "scenario": scenario,
             "artifacts_dir": str(artifacts.run_dir) if artifacts is not None else None,
             "results": [asdict(item) for item in results],
