@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from metro_lab.algorithms import (
     available_algorithm_ids,
     create_planner,
 )
+from metro_lab.experiments import ExperimentArtifacts
 from metro_lab.plugin_cli import consume_cli_plugins
 from metro_lab.plugin_loader import PluginLoadError, load_plugin_file, load_plugins
 
@@ -88,6 +90,35 @@ class ExternalPluginLoaderTests(unittest.TestCase):
             self.assertEqual(decision.action, {"type": "noop"})
             self.assertEqual(decision.title, "external")
             self.assertEqual(decision.detail, "t=123")
+
+    def test_external_source_hash_is_frozen_into_experiment_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            plugin_path = root / "artifact_plugin.py"
+            plugin_path.write_text(_plugin_code("external-artifact"), encoding="utf-8")
+            loaded = load_plugin_file(plugin_path)
+
+            artifacts = ExperimentArtifacts.create(
+                root / "output",
+                algorithms=["external-artifact"],
+                seeds=[42],
+                minutes=1.0,
+                dt_ms=100,
+                replay_sample_ms=1000,
+            )
+            config = json.loads(
+                (artifacts.run_dir / "config.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(config["algorithm_specs"][0]["id"], "external-artifact")
+            self.assertEqual(
+                config["algorithm_specs"][0]["source_name"],
+                "artifact_plugin.py",
+            )
+            self.assertEqual(
+                config["algorithm_specs"][0]["source_sha256"],
+                loaded.spec.source_sha256,
+            )
 
     def test_builtin_algorithm_ids_are_reserved(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
