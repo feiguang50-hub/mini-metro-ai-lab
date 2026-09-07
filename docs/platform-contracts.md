@@ -91,17 +91,44 @@ Algorithms do not receive the viewer, HTTP server, replay writer, experiment run
 
 The plugin registry rejects duplicate IDs, incompatible problem IDs, incompatible problem-contract versions and incompatible action-contract versions. This is the future loading boundary for drop-in algorithms.
 
+## Runtime adapter
+
+`metro_lab.plugin_runtime.PluginPlannerAdapter` is the compatibility edge between the new contracts and the existing Viewer / Battle / Arena runtime:
+
+```text
+legacy runtime observation
+        |
+        v
+state_from_observation()
+        |
+        v
+PlanningAlgorithm
+        |
+        v
+PlanningDecision
+        |
+        v
+to_backend_action()
+        |
+        v
+legacy runtime Decision
+```
+
+The public `greedy-v1` baseline now runs through this adapter and `ContractGreedyV1`. Its public algorithm ID, metadata and behavior remain unchanged. The old `GreedyPlanner` implementation stays in the repository as a behavioral oracle during migration and for archived strategies that still inherit from it.
+
+This is the first production execution path to use Problem + Action Contracts end to end.
+
 ## Migration rule
 
-Existing Greedy / Balanced / Rescue planners remain untouched while platform contracts are introduced. They still use the legacy structured observation until each algorithm is migrated deliberately.
+Balanced / Rescue planners remain untouched until each algorithm is migrated deliberately. They still use the legacy structured observation.
 
-`ContractGreedyV1` is the migration witness. Its semantic actions are translated at the backend edge and then compared step-by-step with the legacy Greedy V1 on the real pinned engine. A platform refactor is not accepted if that compiled behavior diverges.
+`ContractGreedyV1` remains the migration witness. Its semantic actions are translated at the backend edge and compared step-by-step with the legacy Greedy V1 on the real pinned engine. A platform refactor is not accepted if that compiled behavior diverges.
 
 ## Next contract milestones
 
-1. switch one production execution path to Problem + Action Contract only after strict equivalence stays green;
-2. expose explicit compute budgets and decision latency in the benchmark contract;
+1. expose explicit compute budgets and decision latency in the benchmark contract;
+2. add a first-class plugin loading/discovery path with validation before an algorithm can enter experiments;
 3. define problem families rather than a single difficulty axis;
-4. add plugin discovery/loading only after the in-process contract is proven stable;
-5. keep Viewer/Battle as diagnostic instruments over the same experiment state rather than separate game logic;
+4. keep Viewer/Battle as diagnostic instruments over the same experiment state rather than separate game logic;
+5. migrate additional algorithms only when doing so improves the platform boundary rather than creating churn;
 6. remove migration-only backend index fields in a future Problem Contract revision once legacy algorithms no longer depend on them.
