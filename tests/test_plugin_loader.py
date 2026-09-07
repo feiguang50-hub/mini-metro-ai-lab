@@ -136,6 +136,22 @@ class ExternalPluginLoaderTests(unittest.TestCase):
             with self.assertRaisesRegex(PluginLoadError, "PLUGIN_FACTORY"):
                 load_plugin_file(path)
 
+    def test_factory_failure_is_reported_as_plugin_load_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "bad_factory.py"
+            path.write_text(
+                "def PLUGIN_FACTORY():\n    raise RuntimeError('factory boom')\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(PluginLoadError, "plugin factory failed"):
+                load_plugin_file(path)
+
+    def test_empty_plugin_directory_is_rejected_early(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(PluginLoadError, "contains no visible"):
+                load_plugins([Path(temp)])
+
     def test_directory_loading_is_shallow_sorted_and_skips_private_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
