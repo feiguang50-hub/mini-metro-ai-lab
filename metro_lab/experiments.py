@@ -117,10 +117,13 @@ class ExperimentArtifacts:
         decision_budget_ms: float | None = None,
         episode_compute_budget_ms: float | None = None,
     ) -> "ExperimentArtifacts":
+        from .algorithms import get_algorithm_spec
+
         scenario_spec = get_scenario_spec(scenario)
         output_root = Path(output_root)
         output_root.mkdir(parents=True, exist_ok=True)
         algorithm_ids = [str(item) for item in algorithms]
+        algorithm_specs = [get_algorithm_spec(item).public() for item in algorithm_ids]
         seed_values = [int(item) for item in seeds]
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         label = "-vs-".join(_safe_slug(item) for item in algorithm_ids[:3]) or "arena"
@@ -139,6 +142,7 @@ class ExperimentArtifacts:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "engine_commit": ENGINE_COMMIT,
             "algorithms": algorithm_ids,
+            "algorithm_specs": algorithm_specs,
             "seeds": seed_values,
             "minutes": float(minutes),
             "dt_ms": int(dt_ms),
@@ -205,12 +209,26 @@ class ExperimentArtifacts:
             f"- Simulation budget: {self.config['minutes']} min / seed",
             f"- Compute budget: {decision_budget_text}; {episode_budget_text}",
             f"- Step: {self.config['dt_ms']} ms",
+        ]
+
+        external_specs = [
+            spec
+            for spec in self.config.get("algorithm_specs", [])
+            if spec.get("source_sha256")
+        ]
+        for spec in external_specs:
+            lines.append(
+                f"- External source `{spec['id']}`: `{spec.get('source_name')}` · "
+                f"SHA-256 `{spec['source_sha256']}`"
+            )
+
+        lines.extend([
             "",
             "## Solution-quality ranking",
             "",
             "| Algorithm | Deliveries | D/min | Avg waiting | Peak risk | Peak wait | High-risk s | Game over | Invalid rate |",
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-        ]
+        ])
         for row in rows:
             lines.append(
                 "| {algorithm} | {mean_deliveries} | {mean_deliveries_per_minute} | "
@@ -269,7 +287,7 @@ class ExperimentArtifacts:
             "",
             "## Files",
             "",
-            "- `config.json`: exact experiment inputs, scenario, simulation protocol, benchmark contract and compute budgets",
+            "- `config.json`: exact experiment inputs, algorithm metadata/provenance, scenario, simulation protocol, benchmark contract and compute budgets",
             "- `results.json`: machine-readable episode results and summaries",
             "- `episodes.csv`: one row per algorithm × seed episode",
             "- `replays/*.jsonl.gz`: sampled game states plus every non-noop decision",
