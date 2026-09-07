@@ -4,7 +4,8 @@ from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
 from .balanced_planner import BalancedGreedyPlanner
-from .planner import GreedyPlanner
+from .contract_greedy import ContractGreedyV1
+from .plugin_runtime import plugin_planner_factory
 from .rescue_planner import BalancedGreedyV21Planner, GreedyPressureV11Planner
 
 PlannerFactory = Callable[[], Any]
@@ -43,7 +44,7 @@ ALGORITHM_SPECS: tuple[AlgorithmSpec, ...] = (
         status="baseline",
         summary="几何距离 + 即时拥堵的透明基线。新站按最小绕行插入，高压力线路优先扩容。",
         tags=("低计算量", "可解释", "基线"),
-        factory=GreedyPlanner,
+        factory=plugin_planner_factory(ContractGreedyV1),
         default=True,
     ),
     AlgorithmSpec(
