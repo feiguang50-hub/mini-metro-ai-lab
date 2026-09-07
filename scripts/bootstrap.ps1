@@ -26,12 +26,7 @@ function Get-UvExecutable {
         return $LocalUv
     }
 
-    $existing = Get-Command uv.exe -ErrorAction SilentlyContinue
-    if ($null -ne $existing) {
-        return $existing.Source
-    }
-
-    Write-Host "-> uv not found; installing a project-local copy..."
+    Write-Host "-> Installing a project-local uv copy..."
     New-Item -ItemType Directory -Force -Path $UvDir | Out-Null
 
     $oldInstallDir = $env:UV_INSTALL_DIR
