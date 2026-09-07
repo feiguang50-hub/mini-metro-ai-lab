@@ -72,11 +72,15 @@ class ExperimentArtifactTests(unittest.TestCase):
             self.assertEqual(config["benchmark_contract"], BENCHMARK_CONTRACT_VERSION)
             self.assertEqual(config["compute_budget"]["decision_ms"], 5.0)
             self.assertEqual(config["compute_budget"]["episode_ms"], 500.0)
+            self.assertEqual(config["algorithm_specs"][0]["id"], "greedy-v1")
+            self.assertEqual(config["algorithm_specs"][0]["status"], "baseline")
+            self.assertIsNone(config["algorithm_specs"][0]["source_sha256"])
 
             payload = json.loads((artifacts.run_dir / "results.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["benchmark_contract"], BENCHMARK_CONTRACT_VERSION)
             self.assertEqual(payload["results"][0]["seed"], 42)
             self.assertEqual(payload["summaries"][0]["mean_deliveries"], 3.0)
+            self.assertEqual(payload["config"]["algorithm_specs"][0]["id"], "greedy-v1")
 
             summary = (artifacts.run_dir / "summary.md").read_text(encoding="utf-8")
             self.assertIn("Benchmark contract", summary)
