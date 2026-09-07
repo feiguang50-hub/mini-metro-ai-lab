@@ -44,11 +44,16 @@ def discover_plugin_files(entry: Path) -> tuple[Path, ...]:
             raise PluginLoadError(f"plugin file must end in .py: {path}")
         return (path,)
     if path.is_dir():
-        return tuple(
+        files = tuple(
             candidate
             for candidate in sorted(path.glob("*.py"))
             if candidate.is_file() and not candidate.name.startswith("_")
         )
+        if not files:
+            raise PluginLoadError(
+                f"plugin directory contains no visible top-level .py files: {path}"
+            )
+        return files
     raise PluginLoadError(f"plugin path does not exist: {path}")
 
 
@@ -92,6 +97,10 @@ def load_plugin_file(path: Path) -> LoadedPlugin:
         )
     except PluginRegistrationError as exc:
         raise PluginLoadError(f"plugin {path.name} rejected: {exc}") from exc
+    except Exception as exc:
+        raise PluginLoadError(
+            f"plugin factory failed for {path.name}: {type(exc).__name__}: {exc}"
+        ) from exc
 
     return LoadedPlugin(path=path, spec=algorithm_spec)
 
