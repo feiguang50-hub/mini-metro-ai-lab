@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from .balanced_planner import BalancedGreedyPlanner
 from .contract_greedy import ContractGreedyV1
+from .plugin import AlgorithmFactory, AlgorithmPluginRegistry
 from .plugin_runtime import plugin_planner_factory
 from .rescue_planner import BalancedGreedyV21Planner, GreedyPressureV11Planner
 
@@ -22,6 +23,8 @@ class AlgorithmSpec:
     tags: tuple[str, ...]
     factory: PlannerFactory | None = None
     default: bool = False
+    source_name: str | None = None
+    source_sha256: str | None = None
 
     @property
     def available(self) -> bool:
@@ -126,13 +129,38 @@ ALGORITHM_SPECS: tuple[AlgorithmSpec, ...] = (
 
 ALGORITHMS: dict[str, AlgorithmSpec] = {spec.id: spec for spec in ALGORITHM_SPECS}
 DEFAULT_ALGORITHM_ID = next(spec.id for spec in ALGORITHM_SPECS if spec.default)
+_EXTERNAL_REGISTRY = AlgorithmPluginRegistry()
+_EXTERNAL_SPECS: dict[str, AlgorithmSpec] = {}
+
+
+def register_external_algorithm(
+    factory: AlgorithmFactory,
+    *,
+    source_name: str | None = None,
+    source_sha256: str | None = None,
+) -> AlgorithmSpec:
+    metadata = _EXTERNAL_REGISTRY.register(factory, reserved_ids=ALGORITHMS.keys())
+    spec = AlgorithmSpec(
+        id=metadata.id,
+        name=metadata.name,
+        family=metadata.family,
+        version=metadata.version,
+        status="external",
+        summary=metadata.description or "External planning algorithm plugin.",
+        tags=("外部插件",),
+        factory=plugin_planner_factory(factory),
+        source_name=source_name,
+        source_sha256=source_sha256,
+    )
+    _EXTERNAL_SPECS[spec.id] = spec
+    return spec
 
 
 def get_algorithm_spec(algorithm_id: str) -> AlgorithmSpec:
-    try:
-        return ALGORITHMS[algorithm_id]
-    except KeyError as exc:
-        raise ValueError(f"unknown algorithm: {algorithm_id}") from exc
+    spec = ALGORITHMS.get(algorithm_id) or _EXTERNAL_SPECS.get(algorithm_id)
+    if spec is None:
+        raise ValueError(f"unknown algorithm: {algorithm_id}")
+    return spec
 
 
 def create_planner(algorithm_id: str):
@@ -143,8 +171,17 @@ def create_planner(algorithm_id: str):
 
 
 def algorithm_catalog() -> list[dict[str, Any]]:
-    return [spec.public() for spec in ALGORITHM_SPECS]
+    builtins = [spec.public() for spec in ALGORITHM_SPECS]
+    external = [spec.public() for _, spec in sorted(_EXTERNAL_SPECS.items())]
+    return [*builtins, *external]
 
 
 def available_algorithm_ids() -> list[str]:
-    return [spec.id for spec in ALGORITHM_SPECS if spec.available]
+    builtins = [spec.id for spec in ALGORITHM_SPECS if spec.available]
+    return [*builtins, *sorted(_EXTERNAL_SPECS)]
+
+
+def _clear_external_algorithms_for_test() -> None:
+    global _EXTERNAL_REGISTRY
+    _EXTERNAL_REGISTRY = AlgorithmPluginRegistry()
+    _EXTERNAL_SPECS.clear()
