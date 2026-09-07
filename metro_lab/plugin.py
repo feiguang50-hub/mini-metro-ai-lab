@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Protocol, runtime_checkable
 
-from .planner import Decision
+from .action import ACTION_CONTRACT_VERSION, PlanningDecision
 from .problem import MetroPlanningState, PROBLEM_CONTRACT_VERSION, PROBLEM_ID
 
 
@@ -18,22 +18,23 @@ class AlgorithmMetadata:
     description: str = ""
     problem_id: str = PROBLEM_ID
     problem_contract: str = PROBLEM_CONTRACT_VERSION
+    action_contract: str = ACTION_CONTRACT_VERSION
 
 
 @runtime_checkable
 class PlanningAlgorithm(Protocol):
-    """Minimal plugin surface for future backend-neutral algorithms.
+    """Minimal backend-neutral plugin surface for planning algorithms.
 
-    Implementations receive only ``MetroPlanningState`` and return the existing
-    serializable ``Decision`` action envelope. They do not receive the simulator,
-    viewer, HTTP runtime, replay writer, or scenario internals.
+    Implementations receive only ``MetroPlanningState`` and return semantic
+    ``PlanningDecision`` objects. They do not receive simulator indexes, the
+    viewer, HTTP runtime, replay writer, scenario internals, mediator or RNG.
     """
 
     metadata: AlgorithmMetadata
 
     def reset(self, state: MetroPlanningState) -> None: ...
 
-    def act(self, state: MetroPlanningState) -> Decision: ...
+    def act(self, state: MetroPlanningState) -> PlanningDecision: ...
 
 
 AlgorithmFactory = Callable[[], PlanningAlgorithm]
@@ -65,6 +66,11 @@ class AlgorithmPluginRegistry:
             raise PluginRegistrationError(
                 "unsupported problem contract "
                 f"{metadata.problem_contract!r}; expected {PROBLEM_CONTRACT_VERSION!r}"
+            )
+        if metadata.action_contract != ACTION_CONTRACT_VERSION:
+            raise PluginRegistrationError(
+                "unsupported action contract "
+                f"{metadata.action_contract!r}; expected {ACTION_CONTRACT_VERSION!r}"
             )
         if metadata.id in self._factories:
             raise PluginRegistrationError(f"duplicate algorithm id: {metadata.id}")
