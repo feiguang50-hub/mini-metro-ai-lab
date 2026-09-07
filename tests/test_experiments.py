@@ -5,6 +5,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
+from metro_lab.benchmark import BENCHMARK_CONTRACT_VERSION
 from metro_lab.experiments import ExperimentArtifacts, ReplayWriter
 
 
@@ -37,6 +38,8 @@ class ExperimentArtifactTests(unittest.TestCase):
                 minutes=1.0,
                 dt_ms=100,
                 replay_sample_ms=1000,
+                decision_budget_ms=5.0,
+                episode_compute_budget_ms=500.0,
             )
             replay_path = artifacts.replay_path("greedy-v1", 42)
             with ReplayWriter(replay_path, {"algorithm": "greedy-v1", "seed": 42}) as replay:
@@ -65,9 +68,20 @@ class ExperimentArtifactTests(unittest.TestCase):
             self.assertEqual(rows[1]["type"], "frame")
             self.assertEqual(rows[1]["game"]["deliveries"], 3)
 
+            config = json.loads((artifacts.run_dir / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual(config["benchmark_contract"], BENCHMARK_CONTRACT_VERSION)
+            self.assertEqual(config["compute_budget"]["decision_ms"], 5.0)
+            self.assertEqual(config["compute_budget"]["episode_ms"], 500.0)
+
             payload = json.loads((artifacts.run_dir / "results.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["benchmark_contract"], BENCHMARK_CONTRACT_VERSION)
             self.assertEqual(payload["results"][0]["seed"], 42)
             self.assertEqual(payload["summaries"][0]["mean_deliveries"], 3.0)
+
+            summary = (artifacts.run_dir / "summary.md").read_text(encoding="utf-8")
+            self.assertIn("Benchmark contract", summary)
+            self.assertIn("Compute cost", summary)
+            self.assertIn("5.0 ms/decision", summary)
 
 
 if __name__ == "__main__":
