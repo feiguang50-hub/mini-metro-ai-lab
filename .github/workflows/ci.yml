@@ -8,13 +8,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -132,3 +132,91 @@ jobs:
               assert json.load(response)['session_id'] == session + 1
           print('HTTP battle smoke ok: fixed dt, stress scenario, wait risk, self-play, restart')
           PY
+
+  windows-native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: First-run native launcher bootstrap
+        shell: cmd
+        run: run.cmd --help
+
+      - name: Verify self-contained runtime
+        shell: powershell
+        run: |
+          $expected = '382d7cc65da566ac01d8151921c203c25418eacd'
+          if (-not (Test-Path '.tools\uv\uv.exe')) { throw 'project-local uv was not installed' }
+          if (-not (Test-Path '.venv\Scripts\python.exe')) { throw 'Windows virtual environment is missing' }
+          if (-not (Test-Path '.vendor\python_mini_metro\.mini-metro-engine-commit')) { throw 'engine marker is missing' }
+          $actual = (Get-Content -Raw '.vendor\python_mini_metro\.mini-metro-engine-commit').Trim()
+          if ($actual -ne $expected) { throw "engine commit mismatch: $actual" }
+          .\.venv\Scripts\python.exe -c "import sys; assert sys.version_info[:2] == (3, 13); print(sys.version)"
+
+      - name: Compile on Windows
+        shell: powershell
+        run: .\.venv\Scripts\python.exe -m compileall -q metro_lab tests examples
+
+      - name: Unit + engine smoke tests on Windows
+        shell: powershell
+        run: .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+
+      - name: External plugin smoke on Windows
+        shell: powershell
+        run: |
+          .\.venv\Scripts\mini-metro-arena.exe `
+            --plugin examples\nearest_pair_plugin.py `
+            --algorithms example-nearest-pair `
+            --seeds 42 `
+            --minutes 0.02 `
+            --no-save `
+            --no-replays
+
+      - name: HTTP live-view smoke on Windows
+        shell: powershell
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP 'mini-metro-win.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'mini-metro-win.stderr.log'
+          $process = Start-Process `
+            -FilePath '.\.venv\Scripts\mini-metro-lab.exe' `
+            -ArgumentList @('--no-open', '--port', '18766') `
+            -PassThru `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr
+          try {
+            $state = $null
+            for ($i = 0; $i -lt 50; $i++) {
+              try {
+                $state = Invoke-RestMethod -Uri 'http://127.0.0.1:18766/api/state' -TimeoutSec 2
+                break
+              }
+              catch {
+                Start-Sleep -Milliseconds 200
+              }
+            }
+            if ($null -eq $state) {
+              if (Test-Path $stdout) { Get-Content $stdout }
+              if (Test-Path $stderr) { Get-Content $stderr }
+              throw 'Windows HTTP server did not become ready'
+            }
+            if ($state.runtime.algorithm -ne 'Greedy Planner V1') { throw 'unexpected default algorithm' }
+            if ($state.runtime.scenario_id -ne 'stress-v1') { throw 'unexpected default scenario' }
+            if ($state.game.stations.Count -lt 2) { throw 'engine state is incomplete' }
+            Write-Host "Windows HTTP smoke ok: $($state.game.time_ms) ms"
+          }
+          finally {
+            if (-not $process.HasExited) {
+              taskkill /PID $process.Id /T /F | Out-Null
+            }
+          }
+
+      - name: Cleanup smoke on Windows
+        shell: cmd
+        run: clean.cmd
+
+      - name: Verify cleanup
+        shell: powershell
+        run: |
+          foreach ($path in @('.venv', '.vendor', '.tools', 'output')) {
+            if (Test-Path $path) { throw "cleanup left runtime path: $path" }
+          }
