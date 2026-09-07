@@ -12,9 +12,9 @@ license = {text = "MIT"}
 authors = [{name = "Mini Metro Lab contributors"}]
 
 [project.scripts]
-mini-metro-lab = "metro_lab.server:main"
-mini-metro-arena = "metro_lab.arena:main"
-mini-metro-battle = "metro_lab.battle:main"
+mini-metro-lab = "metro_lab.launcher:server_main"
+mini-metro-arena = "metro_lab.launcher:arena_main"
+mini-metro-battle = "metro_lab.launcher:battle_main"
 
 [tool.setuptools]
 packages = ["metro_lab"]
