@@ -89,7 +89,7 @@ act(state: MetroPlanningState) -> PlanningDecision
 
 Algorithms do not receive the viewer, HTTP server, replay writer, experiment runner or Mini Metro mediator.
 
-The plugin registry rejects duplicate IDs, incompatible problem IDs, incompatible problem-contract versions and incompatible action-contract versions. This is the future loading boundary for drop-in algorithms.
+The plugin registry rejects duplicate IDs, incompatible problem IDs, incompatible problem-contract versions and incompatible action-contract versions. This is the loading boundary for interchangeable algorithms.
 
 ## Runtime adapter
 
@@ -122,13 +122,27 @@ This is the first production execution path to use Problem + Action Contracts en
 
 `metro_lab.benchmark` makes algorithm compute cost a first-class experiment dimension.
 
-The Arena now measures planner construction/reset and every decision call, and records mean, p95 and maximum decision latency plus total planner compute. Optional per-decision and per-episode wall-clock budgets produce explicit compliance data.
+The Arena measures planner construction/reset and every decision call, and records mean, p95 and maximum decision latency plus total planner compute. Optional per-decision and per-episode wall-clock budgets produce explicit compliance data.
 
 Solution quality and compute cost remain separate outputs. The platform does not manufacture a weighted score that hides the trade-off between a stronger solution and a more expensive algorithm.
 
 Wall-clock compute results are hardware-sensitive and should be compared on the same runner. V1 audits budget compliance but deliberately does not forcibly interrupt in-process Python algorithms; hard limits require a later isolated process runner.
 
 The full rules are documented in `docs/benchmark-contract.md`.
+
+## External Plugin Loader V1
+
+A contributor can now opt in an external Python algorithm without editing the repository's algorithm table, Viewer, Arena or backend code.
+
+Public commands accept repeatable `--plugin PATH` arguments. A path may identify one `.py` entry file or a directory. Directory discovery is deliberately shallow, deterministic and limited to visible top-level `*.py` files. The platform does not recursively execute arbitrary source trees.
+
+Each entry must expose a callable `PLUGIN_FACTORY`. The factory passes the same Problem/Action Contract validation as built-in contract algorithms before its algorithm ID becomes available to Arena, Viewer or Battle. External IDs cannot replace built-in or reserved algorithm IDs.
+
+The loader computes SHA-256 for each selected plugin entry file. Experiment `config.json` freezes the public algorithm metadata, entry filename and entry-file hash so later results retain a concrete source referent rather than only an algorithm ID.
+
+This is an interface and provenance boundary, not a security sandbox. Loading a Python plugin executes trusted Python in the current process. Untrusted algorithms require the future isolated runner together with hard compute and memory limits.
+
+A runnable example and contribution workflow live in `docs/plugins.md` and `examples/nearest_pair_plugin.py`.
 
 ## Migration rule
 
@@ -138,10 +152,9 @@ Balanced / Rescue planners remain untouched until each algorithm is migrated del
 
 ## Next contract milestones
 
-1. add a first-class plugin loading/discovery path with validation before an algorithm can enter experiments;
-2. add native Windows bootstrap and Windows CI so the experiment harness is first-class on Windows rather than WSL-only;
-3. define problem families rather than a single difficulty axis;
-4. evolve Viewer/Battle into research diagnostics over the same benchmark state, including compute and future search information;
-5. introduce an isolated algorithm runner before claiming hard compute-budget enforcement;
-6. migrate additional algorithms only when doing so improves the platform boundary rather than creating churn;
-7. remove migration-only backend index fields in a future Problem Contract revision once legacy algorithms no longer depend on them.
+1. add native Windows bootstrap and Windows CI so the experiment harness is first-class on Windows rather than WSL-only;
+2. define problem families rather than a single difficulty axis;
+3. evolve Viewer/Battle into research diagnostics over the same benchmark state, including compute and future search information;
+4. introduce an isolated algorithm runner before claiming hard compute-budget or untrusted-plugin enforcement;
+5. migrate additional algorithms only when doing so improves the platform boundary rather than creating churn;
+6. remove migration-only backend index fields in a future Problem Contract revision once legacy algorithms no longer depend on them.
