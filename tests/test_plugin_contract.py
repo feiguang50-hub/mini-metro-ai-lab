@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from metro_lab.planner import Decision
+from metro_lab.action import ACTION_CONTRACT_VERSION, NoOpAction, PlanningDecision
 from metro_lab.plugin import (
     AlgorithmMetadata,
     AlgorithmPluginRegistry,
@@ -23,17 +23,27 @@ class EchoPlugin:
     def reset(self, state: MetroPlanningState) -> None:
         self.last_time = state.time_ms
 
-    def act(self, state: MetroPlanningState) -> Decision:
-        return Decision({"type": "noop"}, "noop", f"t={state.time_ms}")
+    def act(self, state: MetroPlanningState) -> PlanningDecision:
+        return PlanningDecision(NoOpAction(), "noop", f"t={state.time_ms}")
 
 
-class WrongContractPlugin(EchoPlugin):
+class WrongProblemContractPlugin(EchoPlugin):
     metadata = AlgorithmMetadata(
-        id="wrong-contract",
-        name="Wrong Contract",
+        id="wrong-problem-contract",
+        name="Wrong Problem Contract",
         version="0.1",
         family="test",
         problem_contract="999",
+    )
+
+
+class WrongActionContractPlugin(EchoPlugin):
+    metadata = AlgorithmMetadata(
+        id="wrong-action-contract",
+        name="Wrong Action Contract",
+        version="0.1",
+        family="test",
+        action_contract="999",
     )
 
 
@@ -48,6 +58,7 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(registry.ids(), ("echo-test",))
         self.assertEqual(registry.metadata(), (metadata,))
         self.assertEqual(plugin.metadata.problem_contract, PROBLEM_CONTRACT_VERSION)
+        self.assertEqual(plugin.metadata.action_contract, ACTION_CONTRACT_VERSION)
 
     def test_registry_rejects_duplicate_ids(self) -> None:
         registry = AlgorithmPluginRegistry()
@@ -56,11 +67,17 @@ class PluginContractTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginRegistrationError, "duplicate algorithm id"):
             registry.register(EchoPlugin)
 
-    def test_registry_rejects_contract_mismatch(self) -> None:
+    def test_registry_rejects_problem_contract_mismatch(self) -> None:
         registry = AlgorithmPluginRegistry()
 
         with self.assertRaisesRegex(PluginRegistrationError, "unsupported problem contract"):
-            registry.register(WrongContractPlugin)
+            registry.register(WrongProblemContractPlugin)
+
+    def test_registry_rejects_action_contract_mismatch(self) -> None:
+        registry = AlgorithmPluginRegistry()
+
+        with self.assertRaisesRegex(PluginRegistrationError, "unsupported action contract"):
+            registry.register(WrongActionContractPlugin)
 
 
 if __name__ == "__main__":

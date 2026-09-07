@@ -28,7 +28,10 @@ Problem Instance / Problem State
 Algorithm Plugin API
         |
         v
-Experiment Engine / Scenario / Budget
+Semantic Action Contract
+        |
+        v
+Backend Adapter / Experiment Engine / Scenario / Budget
         |
         v
 Evaluator / Diagnostics / Replay
@@ -54,31 +57,51 @@ Mini Metro is the first simulation backend, not the permanent definition of the 
 
 The contract is versioned. A future extension that changes the meaning or availability of algorithm inputs must explicitly advance the contract version.
 
+`StationState.index` and `LineState.index` currently remain only for V1 migration compatibility. New algorithms must treat stable station/line IDs as semantic identity. Backend indexing is not part of Action Contract V1 and should disappear from a future Problem Contract revision after legacy migration is complete.
+
+## Action Contract V1
+
+`metro_lab.action` defines semantic actions using stable station and line IDs. Algorithms express intent such as:
+
+- create a line through an ordered tuple of station IDs;
+- replace a named line with a new ordered station route;
+- assign a locomotive to a named line;
+- attach a carriage to a named line;
+- do nothing for this decision round.
+
+Algorithms do **not** emit Mini Metro `path_index` values or station-index arrays. `to_backend_action()` is the adapter edge that resolves semantic IDs against the current problem state and emits the backend-specific action dictionary.
+
+Unknown station or line IDs fail at that boundary before an invalid backend call is attempted.
+
+Action Contract V1 is intentionally small. It contains only operations already needed by the proven baseline migration. New operations should be added from mathematical planning needs, not by copying every simulator command into the public contract.
+
 ## Algorithm Plugin Contract V1
 
-A new backend-neutral algorithm implements only:
+A backend-neutral algorithm implements only:
 
 ```python
 metadata: AlgorithmMetadata
 reset(state: MetroPlanningState) -> None
-act(state: MetroPlanningState) -> Decision
+act(state: MetroPlanningState) -> PlanningDecision
 ```
+
+`PlanningDecision.action` is an Action Contract V1 object, not a simulator dictionary.
 
 Algorithms do not receive the viewer, HTTP server, replay writer, experiment runner or Mini Metro mediator.
 
-The plugin registry rejects duplicate IDs, incompatible problem IDs and incompatible problem-contract versions. This is the future loading boundary for drop-in algorithms.
+The plugin registry rejects duplicate IDs, incompatible problem IDs, incompatible problem-contract versions and incompatible action-contract versions. This is the future loading boundary for drop-in algorithms.
 
 ## Migration rule
 
-Existing Greedy / Balanced / Rescue planners remain untouched while this contract is introduced. They still use the legacy structured observation until each algorithm is migrated deliberately.
+Existing Greedy / Balanced / Rescue planners remain untouched while platform contracts are introduced. They still use the legacy structured observation until each algorithm is migrated deliberately.
 
-This prevents a platform refactor from silently changing benchmark results.
+`ContractGreedyV1` is the migration witness. Its semantic actions are translated at the backend edge and then compared step-by-step with the legacy Greedy V1 on the real pinned engine. A platform refactor is not accepted if that compiled behavior diverges.
 
 ## Next contract milestones
 
-1. migrate one existing baseline through the new problem contract and prove paired behavioral equivalence;
-2. add a stable action contract that removes backend-specific path/station indexing;
-3. expose explicit compute budgets and decision latency in the benchmark contract;
-4. define problem families rather than a single difficulty axis;
-5. add plugin discovery/loading only after the in-process contract is proven stable;
-6. keep Viewer/Battle as diagnostic instruments over the same experiment state rather than separate game logic.
+1. switch one production execution path to Problem + Action Contract only after strict equivalence stays green;
+2. expose explicit compute budgets and decision latency in the benchmark contract;
+3. define problem families rather than a single difficulty axis;
+4. add plugin discovery/loading only after the in-process contract is proven stable;
+5. keep Viewer/Battle as diagnostic instruments over the same experiment state rather than separate game logic;
+6. remove migration-only backend index fields in a future Problem Contract revision once legacy algorithms no longer depend on them.

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+from metro_lab.action import to_backend_action
 from metro_lab.config import ENGINE_SRC, TICK_MS
 from metro_lab.contract_greedy import ContractGreedyV1
-from metro_lab.planner import GreedyPlanner
+from metro_lab.planner import Decision, GreedyPlanner
 from metro_lab.plugin import AlgorithmPluginRegistry
 from metro_lab.problem import state_from_observation
 from metro_lab.scenarios import (
@@ -42,8 +43,14 @@ class ContractGreedyEngineTests(unittest.TestCase):
 
         compared = 0
         for step in range(steps):
+            state = state_from_observation(observation)
             legacy_decision = legacy.act(observation)
-            contract_decision = contract.act(state_from_observation(observation))
+            semantic_decision = contract.act(state)
+            contract_decision = Decision(
+                to_backend_action(state, semantic_decision.action),
+                semantic_decision.title,
+                semantic_decision.detail,
+            )
             self.assertEqual(
                 contract_decision,
                 legacy_decision,
