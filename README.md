@@ -8,19 +8,37 @@
 
 ## 30 秒启动
 
-需要 Linux、Git、[`uv`](https://docs.astral.sh/uv/) 和能访问 GitHub 的网络。
+### Windows 10 / 11
+
+下载或 clone 本仓库后，直接双击：
+
+```text
+run.cmd
+```
+
+也可以在 PowerShell 中运行：
+
+```powershell
+.\run.ps1
+```
+
+首次启动会在项目目录内自动准备项目私有的 `uv`、Python 3.13、`.venv` 和固定版本 Mini Metro 引擎。**下载 ZIP 的用户不需要预装 Python、Git 或 uv，也不需要 WSL。** 只需要 Windows PowerShell 和能够访问 GitHub / Astral 下载源的网络。
+
+### Linux
+
+需要 Git、[`uv`](https://docs.astral.sh/uv/) 和能访问 GitHub 的网络：
 
 ```bash
 ./run.sh
 ```
 
-首次启动会在项目目录内创建 `.venv`、下载固定版本引擎到 `.vendor`，然后打开本地观战页：
+两种平台启动后都会打开本地观战页：
 
 ```text
 http://127.0.0.1:8765
 ```
 
-不修改系统 Python，不需要 OpenAI API，也不上传游戏状态。
+运行时依赖全部留在项目目录内，不修改系统 Python，不需要 OpenAI API，也不上传游戏状态。
 
 ## 🧠 算法库
 
@@ -37,8 +55,16 @@ http://127.0.0.1:8765
 
 浏览器算法库直接读取 `metro_lab/algorithms.py`。切换算法会保持当前 Seed 并重开同一局，便于肉眼公平比较。归档算法仍然可以手动选择，不会因为“输了”而从历史里消失。
 
+Linux：
+
 ```bash
 ./run.sh --algorithm greedy-v1-1-pressure
+```
+
+Windows：
+
+```powershell
+.\run.ps1 --algorithm greedy-v1-1-pressure
 ```
 
 ### 为什么默认仍是 Greedy V1
@@ -100,11 +126,15 @@ CLI 也可直接对战：
   --minutes 15
 ```
 
+Windows 对应入口为 `.venv\Scripts\mini-metro-battle.exe`。
+
 ## 🏁 Arena V2
 
 ```bash
 .venv/bin/mini-metro-arena
 ```
+
+Windows 对应入口为 `.venv\Scripts\mini-metro-arena.exe`。
 
 例：
 
@@ -253,15 +283,16 @@ tests/
 
 ## 测试与 CI
 
-普通 GitHub Actions 会真实执行：
+普通 GitHub Actions 会在 Ubuntu 和原生 Windows runner 上验证关键路径，包括：
 
 1. 前端行为测试；
-2. Shell 语法检查；
-3. 下载并 checkout 固定上游引擎；
+2. Linux Shell / Windows 原生启动路径；
+3. 固定上游引擎 bootstrap；
 4. Python 编译与完整单测 / 真实引擎 smoke；
-5. 同算法同 Seed 严格平局与 fixed-dt 回归；
+5. 外部算法插件接入；
 6. Classic / Stress 小型开发 benchmark；
-7. HTTP 单算法和双算法真实请求 smoke。
+7. HTTP 单算法和双算法真实请求 smoke；
+8. Windows 项目内运行时清理与卸载边界。
 
 冻结资格赛独立保存为手动研究门禁，避免文档或前端改动重复跑几十个长局。
 
@@ -275,11 +306,19 @@ python_mini_metro commit: 382d7cc65da566ac01d8151921c203c25418eacd
 
 ## 清理
 
+Linux：
+
 ```bash
 ./scripts/clean.sh
 ```
 
-彻底卸载直接删除仓库目录即可。
+Windows：
+
+```text
+clean.cmd
+```
+
+Windows 清理会删除项目内 `.venv`、`.vendor`、`.tools` 和 `output`；源码保持不变。彻底卸载直接删除仓库目录即可。
 
 ## 来源与许可
 
