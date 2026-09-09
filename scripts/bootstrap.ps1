@@ -36,7 +36,7 @@ function Get-UvExecutable {
         $env:UV_INSTALL_DIR = $UvDir
         $env:UV_NO_MODIFY_PATH = "1"
         Invoke-WebRequest -UseBasicParsing -Uri "https://astral.sh/uv/install.ps1" -OutFile $installerPath
-        & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installerPath
+        & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installerPath | ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) {
             throw "uv installer failed with exit code ${LASTEXITCODE}."
         }
