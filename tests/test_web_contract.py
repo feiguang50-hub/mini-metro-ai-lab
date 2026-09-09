@@ -15,18 +15,18 @@ class WebContractTests(unittest.TestCase):
         self.assertEqual(missing, [], f"app.js references missing DOM ids: {missing}")
 
     def test_battle_dom_and_shared_renderer_contract(self):
-        html = (WEB / "battle.html").read_text()
-        js = (WEB / "battle.js").read_text()
+        html = (WEB / "battle.html").read_text(encoding="utf-8")
+        js = (WEB / "battle.js").read_text(encoding="utf-8")
         ids = set(re.findall(r"\$\(['\"]([^'\"]+)['\"]\)", js))
         for side in ("left", "right"):
             ids.update(side + suffix for suffix in ("Name", "Status", "Risk", "Decision", "Algorithm"))
         for element_id in ids:
             self.assertIn(f'id="{element_id}"', html)
         for page in ("index.html", "battle.html"):
-            content = (WEB / page).read_text()
+            content = (WEB / page).read_text(encoding="utf-8")
             self.assertIn('src="/map-renderer.js"', content)
             self.assertNotIn("https://", content)
-        self.assertIn('href="/battle.html"', (WEB / "index.html").read_text())
+        self.assertIn('href="/battle.html"', (WEB / "index.html").read_text(encoding="utf-8"))
         self.assertIn('href="/"', html)
 
     def test_viewer_has_no_remote_runtime_assets(self):
