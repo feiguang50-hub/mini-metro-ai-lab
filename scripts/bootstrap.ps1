@@ -31,15 +31,20 @@ function Get-UvExecutable {
 
     $oldInstallDir = $env:UV_INSTALL_DIR
     $oldNoModifyPath = $env:UV_NO_MODIFY_PATH
+    $installerPath = Join-Path ([IO.Path]::GetTempPath()) ("uv-installer-" + [Guid]::NewGuid().ToString("N") + ".ps1")
     try {
         $env:UV_INSTALL_DIR = $UvDir
         $env:UV_NO_MODIFY_PATH = "1"
-        $installer = (Invoke-WebRequest -UseBasicParsing "https://astral.sh/uv/install.ps1").Content
-        & ([ScriptBlock]::Create($installer))
+        Invoke-WebRequest -UseBasicParsing -Uri "https://astral.sh/uv/install.ps1" -OutFile $installerPath
+        & $installerPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "uv installer failed with exit code ${LASTEXITCODE}."
+        }
     }
     finally {
         $env:UV_INSTALL_DIR = $oldInstallDir
         $env:UV_NO_MODIFY_PATH = $oldNoModifyPath
+        Remove-Item -Force -ErrorAction SilentlyContinue $installerPath
     }
 
     if (-not (Test-Path $LocalUv)) {
