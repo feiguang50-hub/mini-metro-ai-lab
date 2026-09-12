@@ -89,6 +89,7 @@ class ProblemFamilySpec:
 
 SIMULATOR_BASELINE_FAMILY_ID = "simulator-baseline-v1"
 EXOGENOUS_GROWTH_FAMILY_ID = "exogenous-growth-v1"
+EXPLICIT_OD_STATIC_FAMILY_ID = "explicit-od-static-v1"
 
 
 PROBLEM_FAMILY_SPECS: tuple[ProblemFamilySpec, ...] = (
@@ -127,6 +128,24 @@ PROBLEM_FAMILY_SPECS: tuple[ProblemFamilySpec, ...] = (
         scope_notes=(
             "Evolution currently means exogenous station availability over time only.",
             "It does not yet model endogenous population, land-use, or demand feedback from new lines.",
+        ),
+    ),
+    ProblemFamilySpec(
+        id=EXPLICIT_OD_STATIC_FAMILY_ID,
+        name="Explicit OD Static Network Design",
+        version="1.0",
+        summary=(
+            "Static line-network design against an explicit directional origin-destination demand matrix "
+            "under a declared line/station design budget."
+        ),
+        dimensions=(
+            ProblemDimension.GEOMETRY,
+            ProblemDimension.DEMAND,
+        ),
+        scope_notes=(
+            "Passenger demand is an explicit OD matrix and is evaluated with Passenger Assignment V1.",
+            "The line/station design budget constrains feasible designs but is not a vehicle-capacity model.",
+            "V1 has no service frequency, vehicle capacity, infrastructure cost/barrier, uncertainty, or evolution model.",
         ),
     ),
 )

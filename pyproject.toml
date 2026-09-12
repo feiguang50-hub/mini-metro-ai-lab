@@ -15,6 +15,7 @@ authors = [{name = "Mini Metro Lab contributors"}]
 mini-metro-lab = "metro_lab.launcher:server_main"
 mini-metro-arena = "metro_lab.launcher:arena_main"
 mini-metro-battle = "metro_lab.launcher:battle_main"
+mini-metro-static-od = "metro_lab.launcher:static_od_main"
 
 [tool.setuptools]
 packages = ["metro_lab"]

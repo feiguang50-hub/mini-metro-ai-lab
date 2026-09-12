@@ -2,6 +2,7 @@ import unittest
 
 from metro_lab.problem_family import (
     EXOGENOUS_GROWTH_FAMILY_ID,
+    EXPLICIT_OD_STATIC_FAMILY_ID,
     PROBLEM_FAMILY_CONTRACT_VERSION,
     SIMULATOR_BASELINE_FAMILY_ID,
     ProblemDimension,
@@ -22,6 +23,7 @@ class ProblemFamilyContractTests(unittest.TestCase):
     def test_current_families_do_not_overclaim_unimplemented_dimensions(self):
         baseline = get_problem_family_spec(SIMULATOR_BASELINE_FAMILY_ID)
         growth = get_problem_family_spec(EXOGENOUS_GROWTH_FAMILY_ID)
+        static_od = get_problem_family_spec(EXPLICIT_OD_STATIC_FAMILY_ID)
 
         self.assertEqual(
             set(baseline.dimensions),
@@ -35,9 +37,15 @@ class ProblemFamilyContractTests(unittest.TestCase):
             set(growth.dimensions),
             set(baseline.dimensions) | {ProblemDimension.EVOLUTION},
         )
-        for family in (baseline, growth):
+        self.assertEqual(
+            set(static_od.dimensions),
+            {ProblemDimension.GEOMETRY, ProblemDimension.DEMAND},
+        )
+        for family in (baseline, growth, static_od):
             self.assertNotIn(ProblemDimension.INFRASTRUCTURE, family.dimensions)
             self.assertNotIn(ProblemDimension.UNCERTAINTY, family.dimensions)
+        self.assertNotIn(ProblemDimension.CAPACITY, static_od.dimensions)
+        self.assertNotIn(ProblemDimension.EVOLUTION, static_od.dimensions)
 
     def test_scenarios_freeze_full_problem_family_metadata(self):
         classic = get_scenario_spec(CLASSIC_SCENARIO_ID).public()
@@ -56,6 +64,7 @@ class ProblemFamilyContractTests(unittest.TestCase):
         rows = problem_family_catalog()
         ids = [row["id"] for row in rows]
         self.assertEqual(len(ids), len(set(ids)))
+        self.assertIn(EXPLICIT_OD_STATIC_FAMILY_ID, ids)
         self.assertTrue(all(row["contract_version"] == "1.0" for row in rows))
         self.assertTrue(all(row["scope_notes"] for row in rows))
 
