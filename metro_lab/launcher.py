@@ -8,8 +8,6 @@ from .static_plugin_cli import consume_static_cli_plugins
 
 
 def _configure_utf8_stdio() -> None:
-    """Make the public CLIs reliable on Windows legacy console code pages."""
-
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
@@ -43,23 +41,24 @@ def _delegate_static(main: Callable[[], None]) -> None:
 
 def server_main() -> None:
     from .server import main
-
     _delegate(main)
 
 
 def arena_main() -> None:
     from .arena import main
-
     _delegate(main)
 
 
 def battle_main() -> None:
     from .battle import main
-
     _delegate(main)
 
 
 def static_od_main() -> None:
     from .static_od import main
+    _delegate_static(main)
 
+
+def static_infra_main() -> None:
+    from .static_infra import main
     _delegate_static(main)
