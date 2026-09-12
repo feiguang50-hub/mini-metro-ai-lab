@@ -17,6 +17,7 @@ mini-metro-arena = "metro_lab.launcher:arena_main"
 mini-metro-battle = "metro_lab.launcher:battle_main"
 mini-metro-static-od = "metro_lab.launcher:static_od_main"
 mini-metro-static-infra = "metro_lab.launcher:static_infra_main"
+mini-metro-static-uncertainty = "metro_lab.launcher:static_uncertainty_main"
 
 [tool.setuptools]
 packages = ["metro_lab"]

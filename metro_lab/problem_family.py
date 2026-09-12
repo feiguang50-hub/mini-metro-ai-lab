@@ -23,11 +23,7 @@ class ProblemDimensionSpec:
     research_question: str
 
     def public(self) -> dict[str, str]:
-        return {
-            "id": str(self.id),
-            "name": self.name,
-            "research_question": self.research_question,
-        }
+        return {"id": str(self.id), "name": self.name, "research_question": self.research_question}
 
 
 DIMENSION_SPECS: tuple[ProblemDimensionSpec, ...] = (
@@ -63,6 +59,7 @@ SIMULATOR_BASELINE_FAMILY_ID = "simulator-baseline-v1"
 EXOGENOUS_GROWTH_FAMILY_ID = "exogenous-growth-v1"
 EXPLICIT_OD_STATIC_FAMILY_ID = "explicit-od-static-v1"
 EXPLICIT_OD_INFRASTRUCTURE_FAMILY_ID = "explicit-od-infrastructure-v1"
+EXPLICIT_OD_UNCERTAINTY_FAMILY_ID = "explicit-od-uncertainty-v1"
 
 
 PROBLEM_FAMILY_SPECS: tuple[ProblemFamilySpec, ...] = (
@@ -111,6 +108,19 @@ PROBLEM_FAMILY_SPECS: tuple[ProblemFamilySpec, ...] = (
             "Barriers are mathematical abstractions for structures such as rivers, protected corridors, or unusually expensive crossings; they do not simulate construction workflow.",
             "Passenger service quality and infrastructure cost remain separate reported metrics; V1 defines no weighted composite score.",
             "Vehicle capacity, service frequency, uncertain future demand, and land-use feedback remain outside this family.",
+        ),
+    ),
+    ProblemFamilySpec(
+        id=EXPLICIT_OD_UNCERTAINTY_FAMILY_ID,
+        name="Explicit OD Demand Uncertainty",
+        version="1.0",
+        summary="Static explicit-OD network design from nominal demand followed by out-of-sample evaluation on frozen perturbed demand realizations hidden from the design algorithm.",
+        dimensions=(ProblemDimension.GEOMETRY, ProblemDimension.DEMAND, ProblemDimension.UNCERTAINTY),
+        scope_notes=(
+            "The design algorithm receives the nominal OD matrix only; evaluation futures are not part of the Static Design V1 algorithm input.",
+            "Uncertainty V1 perturbs positive nominal OD flows with deterministic seeded common and pair-specific multiplicative shocks without renormalizing total trips.",
+            "The benchmark reports nominal, out-of-sample mean, worst-case, and variability metrics separately; it defines no weighted composite score.",
+            "V1 evaluates robustness of fixed designs; it does not yet expose scenario sets to stochastic-programming algorithms or model adaptive recourse.",
         ),
     ),
 )
