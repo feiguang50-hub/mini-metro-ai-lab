@@ -62,3 +62,8 @@ def static_od_main() -> None:
 def static_infra_main() -> None:
     from .static_infra import main
     _delegate_static(main)
+
+
+def static_uncertainty_main() -> None:
+    from .static_uncertain import main
+    _delegate_static(main)
