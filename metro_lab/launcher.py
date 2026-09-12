@@ -30,6 +30,13 @@ def _delegate(main: Callable[[], None]) -> None:
         sys.argv = original
 
 
+def _delegate_without_dynamic_plugins(main: Callable[[], None]) -> None:
+    """Run a CLI that is not compatible with the dynamic simulator plugin contract."""
+
+    _configure_utf8_stdio()
+    main()
+
+
 def server_main() -> None:
     from .server import main
 
@@ -46,3 +53,9 @@ def battle_main() -> None:
     from .battle import main
 
     _delegate(main)
+
+
+def static_od_main() -> None:
+    from .static_od import main
+
+    _delegate_without_dynamic_plugins(main)
