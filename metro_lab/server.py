@@ -8,12 +8,13 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .algorithms import DEFAULT_ALGORITHM_ID, available_algorithm_ids
 from .config import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_SEED, WEB_ROOT
 from .engine import LabRuntime
 from .live_battle import BattleRuntime
+from .research_view import build_research_snapshot, research_catalog
 
 
 class LabHTTPServer(ThreadingHTTPServer):
@@ -61,7 +62,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/api/battle/state":
             self._json(self.server.battle.snapshot())
             return
@@ -70,6 +72,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/algorithms":
             self._json({"algorithms": self.server.runtime.algorithm_library()})
+            return
+        if path == "/api/research/catalog":
+            self._json(research_catalog())
+            return
+        if path == "/api/research/snapshot":
+            try:
+                query = parse_qs(parsed.query)
+                family = query.get("family", ["static"])[0]
+                seed = int(query.get("seed", ["42"])[0])
+                self._json(build_research_snapshot(family, seed))
+            except (ValueError, TypeError, OverflowError) as exc:
+                self._json({"ok": False, "error": str(exc)}, status=400)
             return
         self._static(path.lstrip("/") or "index.html")
 
