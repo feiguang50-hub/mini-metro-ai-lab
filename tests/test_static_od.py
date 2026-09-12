@@ -3,21 +3,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from metro_lab.assignment import AssignmentLine
 from metro_lab.problem_family import EXPLICIT_OD_STATIC_FAMILY_ID, get_problem_family_spec
 from metro_lab.static_od import (
     STATIC_ALGORITHMS,
     STATIC_DESIGN_CONTRACT_VERSION,
     STATIC_OD_BENCHMARK_ID,
-    StaticDesignBudget,
     StaticODArtifacts,
-    evaluate_static_plan,
     run_static_algorithm,
     run_static_benchmark,
     summarize_static_results,
     synthetic_static_od_instance,
     validate_line_plan,
 )
-from metro_lab.assignment import AssignmentLine
 
 
 class ExplicitODStaticV1Tests(unittest.TestCase):
@@ -63,23 +61,25 @@ class ExplicitODStaticV1Tests(unittest.TestCase):
         self.assertGreaterEqual(result.design_compute_ms, 0.0)
 
     def test_design_budget_rejects_illegal_plan(self):
-        instance = synthetic_static_od_instance(
-            7,
-            station_count=5,
-            budget=StaticDesignBudget(max_lines=1, max_stations_per_line=5),
-        )
+        instance = synthetic_static_od_instance(7)
         with self.assertRaisesRegex(ValueError, "max_lines"):
             validate_line_plan(
                 instance,
                 (
                     AssignmentLine("a", ("S00", "S01")),
                     AssignmentLine("b", ("S01", "S02")),
+                    AssignmentLine("c", ("S02", "S03")),
                 ),
             )
         with self.assertRaisesRegex(ValueError, "max_stations_per_line"):
             validate_line_plan(
                 instance,
-                (AssignmentLine("a", ("S00", "S01", "S02", "S03", "S04")),),
+                (
+                    AssignmentLine(
+                        "a",
+                        ("S00", "S01", "S02", "S03", "S04", "S05", "S06"),
+                    ),
+                ),
             )
 
     def test_benchmark_runs_paired_seeds_for_both_reference_algorithms(self):
