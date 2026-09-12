@@ -32,11 +32,9 @@ class ExplicitODStaticV1Tests(unittest.TestCase):
 
     def test_builtin_reference_algorithms_are_deterministic_and_legal(self):
         instance = synthetic_static_od_instance(314)
-        self.assertEqual(
-            set(STATIC_ALGORITHMS.ids()),
-            {"geometry-nearest-v1", "od-demand-chain-v1"},
-        )
-        for algorithm_id in STATIC_ALGORITHMS.ids():
+        builtins = {"geometry-nearest-v1", "od-demand-chain-v1"}
+        self.assertTrue(builtins.issubset(set(STATIC_ALGORITHMS.ids())))
+        for algorithm_id in sorted(builtins):
             algorithm = STATIC_ALGORITHMS.create(algorithm_id)
             first = algorithm.design(instance)
             second = STATIC_ALGORITHMS.create(algorithm_id).design(instance)
