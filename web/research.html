@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f2f0e9">
+  <title>研究工作台 · Mini Metro AI Lab</title>
+  <link rel="stylesheet" href="/research.css">
+</head>
+<body>
+  <main class="research-shell">
+    <header class="research-header">
+      <div>
+        <div class="eyebrow">MINI METRO · RESEARCH WORKBENCH</div>
+        <h1>线路规划研究工作台</h1>
+        <p id="familySummary">同一问题、同一 Seed、不同算法。直接看它们为什么画出不同的网络。</p>
+      </div>
+      <nav class="research-nav">
+        <a href="/">实时观战</a>
+        <a href="/battle.html">动态对战</a>
+      </nav>
+    </header>
+
+    <section class="control-bar" aria-label="研究条件">
+      <label>
+        <span>问题族</span>
+        <select id="familySelect">
+          <option value="static">Explicit OD Static V1</option>
+          <option value="infrastructure">Infrastructure / Barrier V1</option>
+          <option value="uncertainty">Demand Uncertainty V1</option>
+        </select>
+      </label>
+      <label>
+        <span>Seed</span>
+        <input id="seedInput" type="number" min="0" max="2147483647" value="42" inputmode="numeric">
+      </label>
+      <button id="runBtn" type="button">重新计算</button>
+      <button id="randomBtn" class="secondary" type="button">随机 Seed</button>
+      <div class="discipline">
+        <span>paired seed</span>
+        <span>no composite score</span>
+        <span id="uncertaintyBadge" hidden>hidden OOS futures</span>
+      </div>
+    </section>
+
+    <section class="instance-strip">
+      <div><span>车站</span><strong id="stationCount">–</strong></div>
+      <div><span>OD 总需求</span><strong id="tripCount">–</strong></div>
+      <div><span>设计预算</span><strong id="budgetText">–</strong></div>
+      <div><span>当前问题</span><strong id="familyName">–</strong></div>
+    </section>
+
+    <section id="comparisonGrid" class="comparison-grid" aria-live="polite"></section>
+
+    <section class="analysis-panel">
+      <header>
+        <div>
+          <div class="section-label">METRIC COMPARISON</div>
+          <h2>指标并排看，不做“神奇总分”</h2>
+        </div>
+        <p>乘客服务、建设成本、鲁棒性和计算开销保持分离，避免权重把研究结论藏起来。</p>
+      </header>
+      <div class="table-wrap"><table id="metricTable"></table></div>
+    </section>
+
+    <section id="uncertaintyPanel" class="analysis-panel" hidden>
+      <header>
+        <div>
+          <div class="section-label">OUT-OF-SAMPLE FUTURES</div>
+          <h2>隐藏需求场景表现</h2>
+        </div>
+        <p>算法设计时只接触名义 OD；下图是设计完成后才使用的冻结评测场景。</p>
+      </header>
+      <div id="scenarioCharts" class="scenario-grid"></div>
+    </section>
+
+    <section class="analysis-panel methodology">
+      <header>
+        <div>
+          <div class="section-label">READ THE EXPERIMENT</div>
+          <h2>怎么看这张图</h2>
+        </div>
+      </header>
+      <div class="method-grid">
+        <div><strong>淡灰连线</strong><span>OD 需求中最强的一组流向，粗细代表需求强度。</span></div>
+        <div><strong>彩色线路</strong><span>算法真正设计出来的地铁线路，同一面板内每条线独立着色。</span></div>
+        <div><strong>障碍线</strong><span>Infrastructure V1 中的空间障碍。跨越会增加建设成本，hard barrier 可直接让方案不可行。</span></div>
+        <div><strong>同一 Seed</strong><span>左右算法看到完全相同的站点、OD 和评测条件，差异来自算法而不是随机地图。</span></div>
+      </div>
+    </section>
+
+    <footer class="research-footer">
+      <span>本地计算 · 不上传状态</span>
+      <span>Research View Contract v1.0</span>
+    </footer>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/research.js"></script>
+</body>
+</html>
