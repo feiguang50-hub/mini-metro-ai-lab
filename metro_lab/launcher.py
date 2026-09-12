@@ -4,6 +4,7 @@ import sys
 from collections.abc import Callable
 
 from .plugin_cli import consume_cli_plugins
+from .static_plugin_cli import consume_static_cli_plugins
 
 
 def _configure_utf8_stdio() -> None:
@@ -15,7 +16,6 @@ def _configure_utf8_stdio() -> None:
             try:
                 reconfigure(encoding="utf-8")
             except (OSError, ValueError):
-                # Some redirected or embedded streams cannot be reconfigured.
                 pass
 
 
@@ -30,11 +30,15 @@ def _delegate(main: Callable[[], None]) -> None:
         sys.argv = original
 
 
-def _delegate_without_dynamic_plugins(main: Callable[[], None]) -> None:
-    """Run a CLI that is not compatible with the dynamic simulator plugin contract."""
-
+def _delegate_static(main: Callable[[], None]) -> None:
     _configure_utf8_stdio()
-    main()
+    _loaded, remaining = consume_static_cli_plugins(sys.argv[1:])
+    original = sys.argv
+    sys.argv = [original[0], *remaining]
+    try:
+        main()
+    finally:
+        sys.argv = original
 
 
 def server_main() -> None:
@@ -58,4 +62,4 @@ def battle_main() -> None:
 def static_od_main() -> None:
     from .static_od import main
 
-    _delegate_without_dynamic_plugins(main)
+    _delegate_static(main)
