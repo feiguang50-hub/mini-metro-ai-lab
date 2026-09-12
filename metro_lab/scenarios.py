@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from .problem_family import (
+    EXOGENOUS_GROWTH_FAMILY_ID,
+    SIMULATOR_BASELINE_FAMILY_ID,
+    get_problem_family_spec,
+)
+
 CLASSIC_SCENARIO_ID = "classic-v1"
 STRESS_SCENARIO_ID = "stress-v1"
 DEFAULT_SCENARIO_ID = CLASSIC_SCENARIO_ID
@@ -15,10 +21,13 @@ class ScenarioSpec:
     name: str
     version: str
     summary: str
+    problem_family_id: str
     station_spawn_interval_ms: int | None = None
 
     def public(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["problem_family"] = get_problem_family_spec(self.problem_family_id).public()
+        return data
 
 
 SCENARIO_SPECS: tuple[ScenarioSpec, ...] = (
@@ -27,12 +36,14 @@ SCENARIO_SPECS: tuple[ScenarioSpec, ...] = (
         name="Classic V1",
         version="1.0",
         summary="固定上游原始站点推进逻辑，用于历史兼容基线。",
+        problem_family_id=SIMULATOR_BASELINE_FAMILY_ID,
     ),
     ScenarioSpec(
         id=STRESS_SCENARIO_ID,
         name="Stress V1",
         version="1.0",
         summary="固定 Seed 站点池，开局保留初始站点，之后每 45 秒模拟时间开放一个新站直到上限。",
+        problem_family_id=EXOGENOUS_GROWTH_FAMILY_ID,
         station_spawn_interval_ms=STRESS_STATION_SPAWN_INTERVAL_MS,
     ),
 )
@@ -119,6 +130,7 @@ def scenario_status(env: Any, scenario_id: str) -> dict[str, Any]:
     return {
         "scenario_id": spec.id,
         "scenario_name": spec.name,
+        "problem_family_id": spec.problem_family_id,
         "station_count": count,
         "station_limit": mediator.num_stations,
         "station_spawn_interval_ms": interval_ms,
