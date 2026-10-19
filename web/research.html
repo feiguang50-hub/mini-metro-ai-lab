@@ -7,28 +7,31 @@
   <meta name="theme-color" content="#f2f0e9">
   <title>研究工作台 · Mini Metro AI Lab</title>
   <link rel="stylesheet" href="/research.css">
+  <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
   <main class="research-shell">
+    <header class="lab-navigation">
+      <a class="lab-brand" href="/"><strong>MINI METRO</strong><span>地铁算法实验室</span></a>
+      <nav class="lab-tabs" aria-label="主要导航"><a href="/">实时观战</a><a href="/battle.html">算法对比</a><a href="/research.html" aria-current="page">规划研究</a></nav>
+      <span class="lab-local">本地计算 · 自由探索</span>
+    </header>
     <header class="research-header">
       <div>
-        <div class="eyebrow">MINI METRO · RESEARCH WORKBENCH</div>
-        <h1>线路规划研究工作台</h1>
+        <div class="eyebrow">NETWORK DESIGN</div>
+        <h1>规划研究</h1>
         <p id="familySummary">同一问题、同一 Seed、不同算法。直接看它们为什么画出不同的网络。</p>
       </div>
-      <nav class="research-nav">
-        <a href="/">实时观战</a>
-        <a href="/battle.html">动态对战</a>
-      </nav>
+
     </header>
 
     <section class="control-bar" aria-label="研究条件">
       <label>
         <span>问题族</span>
         <select id="familySelect">
-          <option value="static">Explicit OD Static V1</option>
-          <option value="infrastructure">Infrastructure / Barrier V1</option>
-          <option value="uncertainty">Demand Uncertainty V1</option>
+          <option value="static">站点与客流</option>
+          <option value="infrastructure">建设成本与障碍</option>
+          <option value="uncertainty">需求不确定性</option>
         </select>
       </label>
       <label>
@@ -38,9 +41,9 @@
       <button id="runBtn" type="button">重新计算</button>
       <button id="randomBtn" class="secondary" type="button">随机 Seed</button>
       <div class="discipline">
-        <span>paired seed</span>
-        <span>no composite score</span>
-        <span id="uncertaintyBadge" hidden>hidden OOS futures</span>
+        <span>相同实验条件</span>
+        <span>指标独立展示</span>
+        <span id="uncertaintyBadge" hidden>独立需求场景</span>
       </div>
     </section>
 
@@ -57,9 +60,9 @@
       <header>
         <div>
           <div class="section-label">METRIC COMPARISON</div>
-          <h2>指标并排看，不做“神奇总分”</h2>
+          <h2>看清每一种取舍</h2>
         </div>
-        <p>乘客服务、建设成本、鲁棒性和计算开销保持分离，避免权重把研究结论藏起来。</p>
+        <p>分别比较乘客服务、线路成本与计算开销，保留完整的实验视角。</p>
       </header>
       <div class="table-wrap"><table id="metricTable"></table></div>
     </section>
