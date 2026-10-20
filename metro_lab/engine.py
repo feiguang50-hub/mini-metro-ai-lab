@@ -57,6 +57,24 @@ def _load_engine():
     return MiniMetroEnv, engine_config
 
 
+def decision_targets(action: dict[str, Any], game: dict[str, Any]) -> dict[str, list[Any]]:
+    """Resolve action indices against the observation the planner actually saw."""
+    stations, paths = game.get("stations", []), game.get("paths", [])
+    station_ids: list[Any] = []
+    path_ids: list[Any] = []
+    indices = action.get("stations", [])
+    if isinstance(indices, (list, tuple)):
+        for index in indices:
+            if type(index) is int and 0 <= index < len(stations):
+                station_ids.append(stations[index]["id"])
+    index = action.get("path_index")
+    if type(index) is int and 0 <= index < len(paths):
+        path = paths[index]
+        path_ids.append(path["id"])
+        station_ids.extend(path.get("station_ids", []))
+    return {"station_ids": list(dict.fromkeys(station_ids)), "path_ids": path_ids}
+
+
 class LabRuntime:
     def __init__(self, seed: int = 42, algorithm_id: str = DEFAULT_ALGORITHM_ID) -> None:
         MiniMetroEnv, engine_config = _load_engine()
@@ -106,7 +124,7 @@ class LabRuntime:
         if self._thread:
             self._thread.join(timeout=2)
 
-    def _record(self, decision: Decision, ok: bool, now_ms: int) -> None:
+    def _record(self, decision: Decision, ok: bool, now_ms: int, targets: dict[str, list[Any]]) -> None:
         if decision.action.get("type") == "noop":
             return
         self._history.appendleft(
@@ -116,6 +134,7 @@ class LabRuntime:
                 "detail": decision.detail,
                 "action": decision.action.get("type"),
                 "ok": bool(ok),
+                "targets": targets,
             }
         )
 
@@ -125,6 +144,7 @@ class LabRuntime:
             with self._lock:
                 if not self._paused and not self._observation["structured"]["is_game_over"]:
                     decision = self._planner.act(self._observation)
+                    targets = decision_targets(decision.action, self._observation["structured"])
                     self._last_decision = decision
                     dt = TICK_MS * self._speed
                     outcome = advance_fixed_dt(
@@ -138,7 +158,7 @@ class LabRuntime:
                         obs = self._env.observe()
                     self._observation = obs
                     self._action_ok = outcome.action_ok
-                    self._record(decision, self._action_ok, int(obs["structured"]["time_ms"]))
+                    self._record(decision, self._action_ok, int(obs["structured"]["time_ms"]), targets)
             elapsed = time.monotonic() - started
             self._stop.wait(max(0.01, TICK_MS / 1000 - elapsed))
 

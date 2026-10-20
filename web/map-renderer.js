@@ -6,6 +6,7 @@ window.createMetroRenderer = function(canvas) {
   const knownStations = new Set();
   const stationBirths = new Map();
   let stationSetInitialized = false;
+  let focus = null;
   function colorOf(value, fallback) {
     if (Array.isArray(value) && value.length >= 3) return `rgb(${value[0]},${value[1]},${value[2]})`;
     if (typeof value === 'string' && value) return value;
@@ -241,6 +242,9 @@ window.createMetroRenderer = function(canvas) {
       };
       ctx.save();
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      if (focus?.path_ids?.includes(path.id)) {
+        trace(); ctx.strokeStyle = 'rgba(38,105,88,.22)'; ctx.lineWidth = Math.max(18, viewport.width / 65); ctx.stroke();
+      }
       trace(); ctx.strokeStyle = 'rgba(247,244,237,.96)'; ctx.lineWidth = Math.max(8.5, viewport.width / 115); ctx.stroke();
       trace(); ctx.strokeStyle = color; ctx.lineWidth = Math.max(5.2, viewport.width / 180); ctx.stroke();
       ctx.restore();
@@ -267,6 +271,13 @@ window.createMetroRenderer = function(canvas) {
       const point = stationPoint(station, engine);
       const shapes = waiters.get(station.id) || [];
       const waiting = Math.max(Number(station.passenger_count) || 0, shapes.length);
+      if (focus?.station_ids?.includes(station.id)) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(point.x, point.y, 23, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(38,105,88,.13)'; ctx.fill();
+        ctx.strokeStyle = '#266958'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.restore();
+      }
       drawStation(point.x, point.y, shapeName(station.shape_type), waiting / threshold);
       drawWaitingPassengers(point, shapes, threshold);
       drawStationArrival(station, point);
@@ -274,5 +285,5 @@ window.createMetroRenderer = function(canvas) {
   }
 
 
-  return { draw(current) { resizeCanvas(); drawNetwork(current); }, resize: resizeCanvas, reset() { trainVisuals.clear(); knownStations.clear(); stationBirths.clear(); stationSetInitialized = false; }, setCrowd(value) { crowdVisible = value; } };
+  return { draw(current) { resizeCanvas(); drawNetwork(current); }, resize: resizeCanvas, reset() { trainVisuals.clear(); knownStations.clear(); stationBirths.clear(); stationSetInitialized = false; focus = null; }, setCrowd(value) { crowdVisible = value; }, setFocus(value) { focus = value; } };
 };
