@@ -47,6 +47,11 @@
           <button id="immersiveBtn" class="hud-button" type="button" aria-pressed="false">沉浸观战</button>
         </div>
 
+        <div id="mapFocus" class="map-focus-note" hidden>
+          <div><small>地图定位 · 当前路网</small><strong id="mapFocusTitle"></strong><span id="mapFocusDetail"></span></div>
+          <button id="clearFocus" type="button" aria-label="清除地图定位">×</button>
+        </div>
+
         <div id="gameOver" class="game-over" hidden>
           <div class="game-over-kicker">本局结束</div>
           <strong id="finalScore">运送 0 人</strong>
@@ -93,6 +98,7 @@
             <span class="action-chip" id="actionChip">NOOP</span>
             <span id="actionState" class="action-state">等待执行</span>
           </div>
+          <button id="focusLatest" class="focus-decision" type="button" hidden>定位最近调整 ↗</button>
         </section>
 
         <section class="brain-card">
@@ -116,7 +122,7 @@
         </section>
 
         <details class="brain-card history-card">
-          <summary>最近决策<span>展开记录</span></summary>
+          <summary>最近决策<span>点击记录定位</span></summary>
           <div id="history" class="history"><div class="empty">暂无重大调整</div></div>
         </details>
       </aside>

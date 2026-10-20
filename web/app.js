@@ -9,6 +9,35 @@
   let crowdVisible = true;
   let toastTimer = null;
   let catalogSignature = '';
+  let historySignature = '';
+  let selectedDecision = null;
+
+  const decisionKey = (item) => `${item.time_ms}:${item.action}:${item.title}`;
+  const hasTargets = (item) => Boolean(item?.targets?.station_ids?.length || item?.targets?.path_ids?.length);
+
+  function clearFocus() {
+    selectedDecision = null;
+    renderer.setFocus(null);
+    $('mapFocus').hidden = true;
+    canvas.setAttribute('aria-label', '实时地铁网络');
+    document.querySelectorAll('.history-item').forEach((el) => el.setAttribute('aria-pressed', 'false'));
+  }
+
+  function focusDecision(item) {
+    if (!hasTargets(item)) return;
+    selectedDecision = item;
+    renderer.setFocus(item.targets);
+    $('mapFocus').hidden = false;
+    $('mapFocusTitle').textContent = `${fmtTime(item.time_ms)} · ${item.title}`;
+    $('mapFocusDetail').textContent = item.ok ? '相关位置已标出' : '动作未执行，标出相关位置';
+    canvas.setAttribute('aria-label', `实时地铁网络，已定位：${item.title}`);
+    document.querySelectorAll('.history-item').forEach((el) => el.setAttribute('aria-pressed', String(el.dataset.decisionKey === decisionKey(item))));
+    // The inspector sits below the map on phones. Bring the actual result into
+    // view while keeping the simulation running at the user's chosen speed.
+    if (window.matchMedia('(max-width: 900px)').matches) {
+      canvas.closest('.map-panel').scrollIntoView({block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
+    }
+  }
 
   function fmtTime(ms) {
     const total = Math.floor((Number(ms) || 0) / 1000);
@@ -54,6 +83,10 @@
   }
 
   function renderUI(current) {
+    if (state && (state.runtime.seed !== current.runtime.seed || state.runtime.algorithm_id !== current.runtime.algorithm_id || state.game.time_ms > current.game.time_ms)) {
+      clearFocus();
+      renderer.reset();
+    }
     state = current;
     const game = current.game || {};
     const fleet = game.fleet || {};
@@ -96,14 +129,24 @@
     $('gameOver').hidden = !dead;
     if (dead) $('finalScore').textContent = `运送 ${game.deliveries ?? 0} 人`;
 
-    const history = $('history');
-    history.innerHTML = '';
-    if (!current.history.length) {
-      history.innerHTML = '<div class="empty">暂无重大调整</div>';
-    } else {
-      current.history.slice(0, 6).forEach((item) => {
-        const el = document.createElement('div');
+    const recent = current.history || [];
+    $('focusLatest').hidden = !recent.some(hasTargets);
+    const signature = JSON.stringify(recent.slice(0, 6));
+    if (signature !== historySignature) {
+      historySignature = signature;
+      const history = $('history');
+      const focusedKey = document.activeElement?.dataset.decisionKey;
+      history.innerHTML = '';
+      if (!recent.length) history.innerHTML = '<div class="empty">暂无重大调整</div>';
+      recent.slice(0, 6).forEach((item) => {
+        const el = document.createElement('button');
+        el.type = 'button';
         el.className = `history-item${item.ok ? '' : ' bad'}`;
+        el.dataset.decisionKey = decisionKey(item);
+        el.disabled = !hasTargets(item);
+        el.setAttribute('aria-label', `在地图上定位：${item.title}${item.ok ? '' : '，动作未执行'}`);
+        el.setAttribute('aria-pressed', String(selectedDecision && decisionKey(item) === decisionKey(selectedDecision) || false));
+        el.addEventListener('click', () => focusDecision(item));
         const title = document.createElement('strong');
         title.textContent = `${fmtTime(item.time_ms)} · ${item.title}${item.ok ? '' : '（未执行）'}`;
         const p = document.createElement('p');
@@ -111,6 +154,7 @@
         el.append(title, p);
         history.appendChild(el);
       });
+      if (focusedKey) [...history.children].find(el => el.dataset.decisionKey === focusedKey)?.focus({preventScroll: true});
     }
   }
 
@@ -131,6 +175,10 @@
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.error || '控制失败');
+      if (['restart', 'random_restart', 'algorithm'].includes(command)) {
+        clearFocus();
+        renderer.reset();
+      }
       await poll();
       return payload;
     } catch (error) {
@@ -142,6 +190,8 @@
   $('pauseBtn').addEventListener('click', () => control(state?.runtime.paused ? 'resume' : 'pause').catch(() => {}));
   $('restartBtn').addEventListener('click', () => control('restart').catch(() => {}));
   $('randomBtn').addEventListener('click', () => control('random_restart').catch(() => {}));
+  $('clearFocus').addEventListener('click', () => { clearFocus(); $('focusLatest').focus({preventScroll: true}); });
+  $('focusLatest').addEventListener('click', () => focusDecision(state?.history.find(hasTargets)));
   document.querySelectorAll('.speed').forEach((btn) => btn.addEventListener('click', () => control('speed', Number(btn.dataset.speed)).catch(() => {})));
 
   $('algorithmSelect').addEventListener('change', async (event) => {
@@ -152,7 +202,6 @@
     try {
       await control('algorithm', next);
       toast('已切换算法，并用同一 Seed 重开');
-      renderer.reset();
     } catch (_error) {
       event.target.value = previous || '';
     } finally {
