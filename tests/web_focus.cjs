@@ -25,6 +25,27 @@ test('map focus follows stable IDs after station/path reordering and clears on r
   assert.equal(calls.filter(call => call[0] === 'arc' && call[3] === 23).length, 0);
 });
 
+test('reduced motion suppresses station pulses and train interpolation', () => {
+  function frames(reduce) {
+    const calls = [];
+    const ctx = new Proxy({}, {get: (_, method) => (...args) => calls.push([method, ...args])});
+    const canvas = {width:640,height:360,getContext:()=>ctx,getBoundingClientRect:()=>({width:640,height:360})};
+    const context = {window:{devicePixelRatio:1,matchMedia:()=>({matches:reduce})}};
+    vm.runInNewContext(fs.readFileSync('web/map-renderer.js','utf8'),context);
+    const renderer=context.window.createMetroRenderer(canvas);
+    const state={engine:{screen_width:640,screen_height:360},game:{stations:[{id:'a',position:[20,30]}],metros:[{id:'train',position:[20,30]}]}};
+    renderer.draw(state);calls.length=0;
+    state.game.stations.push({id:'b',position:[200,300]});
+    state.game.metros[0].position=[200,300];
+    renderer.draw(state);return calls;
+  }
+  const reduced=frames(true),normal=frames(false);
+  assert.deepEqual(reduced.find(call=>call[0]==='translate'),['translate',212,308]);
+  assert.notDeepEqual(normal.find(call=>call[0]==='translate'),['translate',212,308]);
+  assert.equal(reduced.some(call=>call[0]==='fillText'&&call[1]==='新站'),false);
+  assert.equal(normal.some(call=>call[0]==='fillText'&&call[1]==='新站'),true);
+});
+
 test('successful restart clears focus even when the first new frame has the same time', async () => {
   const element = () => ({
     value: '', hidden: true, dataset: {}, events: {}, children: [], classList: {toggle() {}},

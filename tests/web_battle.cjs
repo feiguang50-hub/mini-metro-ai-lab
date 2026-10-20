@@ -80,6 +80,42 @@ test('API failures visible and controls re-enabled; polling recovers', async () 
   assert.equal(f.elements.margin.textContent,'右侧 +3');
 });
 
+test('completed single-Seed outcome shows the backend leader and clears for a new run', async () => {
+  const f = fixture();
+  f.reply(f.requests[0], {algorithms:[{id:'a',name:'A',available:true,status:'baseline'}]});
+  f.reply(f.requests[1], state()); await flush();
+  assert.equal(f.elements.battleOutcome.hidden, true);
+  const completed = {...state(), status:'finished', leader:'left', delivery_margin:4};
+  completed.left = {...completed.left, game:{deliveries:6,time_ms:100}};
+  f.timers[0](); f.reply(f.requests.at(-1), completed); await flush();
+  assert.equal(f.elements.outcomeTitle.textContent,'左侧领先，多运送 4 人');
+  assert.equal(f.elements.leftOutcome.hidden,false);
+  assert.equal(f.elements.rightOutcome.hidden,true);
+  assert.match(f.elements.outcomeDetail.textContent,/Seed 42/);
+  f.timers[0](); f.reply(f.requests.at(-1), {...state(2),status:'finished'}); await flush();
+  assert.equal(f.elements.outcomeTitle.textContent,'本局平局，两侧各运送 2 人');
+  assert.equal(f.elements.leftOutcome.hidden,true);
+  f.timers[0](); f.reply(f.requests.at(-1), state(3)); await flush();
+  assert.equal(f.elements.battleOutcome.hidden,true);
+});
+
+test('reload restores the active pair while polling preserves draft config edits', async () => {
+  const f=fixture();
+  const current={...state(),config:{left:'b',right:'a',seed:314,dt_ms:500,budget_ms:2000}};
+  f.reply(f.requests[1],current);await flush();
+  f.reply(f.requests[0],{algorithms:[{id:'a',name:'A',available:true,status:'baseline'},{id:'b',name:'B',available:true,status:'candidate'}]});await flush();
+  assert.equal(f.elements.leftAlgorithm.value,'b');
+  assert.equal(f.elements.rightAlgorithm.value,'a');
+  assert.equal(f.elements.battleSeed.value,'314');
+  assert.equal(f.elements.battleBudget.value,'2');
+  f.elements.leftAlgorithm.value='a';f.elements.battleForm.events.change();
+  f.timers[0]();f.reply(f.requests.at(-1),current);await flush();
+  assert.equal(f.elements.leftAlgorithm.value,'a');
+  f.elements.restartBattle.events.click();f.reply(f.requests.at(-1),{ok:true});await flush();
+  f.timers[0]();f.reply(f.requests.at(-1),{...current,session_id:2});await flush();
+  assert.equal(f.elements.leftAlgorithm.value,'b');
+});
+
 test('shared renderer draws numeric engine shapes exactly like their named equivalents', () => {
   function draw(shape) {
     const calls = [];
