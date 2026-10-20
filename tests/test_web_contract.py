@@ -19,7 +19,7 @@ class WebContractTests(unittest.TestCase):
         js = (WEB / "battle.js").read_text(encoding="utf-8")
         ids = set(re.findall(r"\$\(['\"]([^'\"]+)['\"]\)", js))
         for side in ("left", "right"):
-            ids.update(side + suffix for suffix in ("Name", "Status", "Risk", "Decision", "Algorithm"))
+            ids.update(side + suffix for suffix in ("Name", "Status", "Risk", "Decision", "Algorithm", "Outcome"))
         for element_id in ids:
             self.assertIn(f'id="{element_id}"', html)
         for page in ("index.html", "battle.html"):

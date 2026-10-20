@@ -177,6 +177,18 @@ h1, .research-header h1 { margin: 0; color: var(--ink); font-size: clamp(26px, 2
 .history button.history-item:disabled { cursor: default; opacity: .65; }
 .history button.history-item strong { font-size: 11px; }
 .history button.history-item p { margin: 6px 0 0; font-size: 11px; }
+.battle-outcome { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 0 0 20px; padding: 18px 22px; border: 1px solid #bfd2c5; border-left: 4px solid var(--accent); border-radius: 12px; background: #edf4ee; }
+.battle-outcome span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px; }
+.battle-outcome strong { font-size: 18px; color: var(--accent); }
+.battle-outcome p { max-width: 50%; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+.battle-winner { padding: 4px 8px; border-radius: 6px; color: var(--accent); background: var(--accent-soft); font-size: 10px; font-weight: 650; }
+.map-focus-note { animation: focus-note-in .18s ease-out; }
+@keyframes focus-note-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 540px) {
+  .battle-outcome { align-items: stretch; flex-direction: column; gap: 10px; padding: 16px; }
+  .battle-outcome strong { font-size: 16px; }
+  .battle-outcome p { max-width: none; }
+}
 @media (max-width: 1100px) {
   .lab-local { display: none; }
   .workspace { grid-template-columns: minmax(0, 1fr) 270px; gap: 16px; }

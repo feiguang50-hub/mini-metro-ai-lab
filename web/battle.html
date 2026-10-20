@@ -31,9 +31,10 @@
   </form>
   <p id="battleConfig" class="battle-note">选择算法后开始；修改选项只会在开始新对战时生效。</p>
   <p id="battleError" role="alert" hidden></p>
+  <section id="battleOutcome" class="battle-outcome" aria-live="polite" hidden><div><span>本次 Seed 的结果</span><strong id="outcomeTitle"></strong></div><p id="outcomeDetail"></p></section>
   <section class="battle-grid" aria-label="同步对战地图">
-    <article><header class="side-header"><h2 id="leftName">左侧</h2><span id="leftStatus">等待开始</span><strong id="leftRisk">风险 0%</strong><span id="leftStations" class="station-clock">3 站</span></header><div class="map-panel"><canvas id="leftCanvas" aria-label="左侧实时地铁网络"></canvas></div><p id="leftDecision" class="battle-note">等待第一轮决策</p></article>
-    <article><header class="side-header"><h2 id="rightName">右侧</h2><span id="rightStatus">等待开始</span><strong id="rightRisk">风险 0%</strong><span id="rightStations" class="station-clock">3 站</span></header><div class="map-panel"><canvas id="rightCanvas" aria-label="右侧实时地铁网络"></canvas></div><p id="rightDecision" class="battle-note">等待第一轮决策</p></article>
+    <article><header class="side-header"><h2 id="leftName">左侧</h2><span id="leftOutcome" class="battle-winner" hidden>本局领先</span><span id="leftStatus">等待开始</span><strong id="leftRisk">风险 0%</strong><span id="leftStations" class="station-clock">3 站</span></header><div class="map-panel"><canvas id="leftCanvas" aria-label="左侧实时地铁网络"></canvas></div><p id="leftDecision" class="battle-note">等待第一轮决策</p></article>
+    <article><header class="side-header"><h2 id="rightName">右侧</h2><span id="rightOutcome" class="battle-winner" hidden>本局领先</span><span id="rightStatus">等待开始</span><strong id="rightRisk">风险 0%</strong><span id="rightStations" class="station-clock">3 站</span></header><div class="map-panel"><canvas id="rightCanvas" aria-label="右侧实时地铁网络"></canvas></div><p id="rightDecision" class="battle-note">等待第一轮决策</p></article>
   </section>
   <details class="experiment-notes"><summary>如何理解这次对比</summary><p>每 45 秒加入一个新站，左右算法在相同模拟时间看到相同站点。风险反映候车等待压力，不代表失败概率。提前结束的一侧保留最终画面，另一侧继续至共同预算结束。单场领先不改变算法评级。</p></details>
 </main>

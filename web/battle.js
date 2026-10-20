@@ -8,6 +8,7 @@
   let generation = 0;
   let catalogReady = false;
   let controlError = "";
+  let formDirty = false;
   const time = (ms) => `${(ms / 1000).toFixed(1)} 秒`;
   const stationText = (progression) => {
     const count = `${progression.station_count}/${progression.station_limit} 站`;
@@ -16,15 +17,34 @@
       : `${count} · 下一站 ${time(progression.next_station_in_ms)}`;
   };
 
+  function syncForm() {
+    if (!catalogReady || !state?.config || formDirty) return;
+    const config = state.config;
+    const values = {leftAlgorithm:config.left, rightAlgorithm:config.right, battleSeed:config.seed, battleDt:config.dt_ms, battleBudget:config.budget_ms / 1000};
+    for (const [id, value] of Object.entries(values)) {
+      if (value != null && $(id).value !== String(value)) $(id).value = String(value);
+    }
+  }
+
   function render(next) {
     if (state?.session_id !== next.session_id) Object.values(renderers).forEach((r) => r.reset());
     state = next;
     $('battleStatus').textContent = next.status === 'finished' ? '对战结束' : labels[next.status];
     $('restartBattle').disabled = pending || !next.config;
+    const finished = next.status === 'finished';
+    $('battleOutcome').hidden = !finished;
+    for (const side of ['left', 'right']) $(side + 'Outcome').hidden = !finished || next.leader !== side;
     if (!next.config) return;
+    syncForm();
     $('battleConfig').textContent = `本局 Seed ${next.config.seed} · 每步 ${next.config.dt_ms} ms · 共同预算 ${time(next.config.budget_ms)} · 已推进 ${time(next.elapsed_ms)} · 第 ${next.round} 轮`;
     $('score').textContent = `${next.left.game.deliveries ?? 0} : ${next.right.game.deliveries ?? 0}`;
     $('margin').textContent = next.leader === 'tie' ? '平局' : `${next.leader === 'left' ? '左' : '右'}侧 +${next.delivery_margin}`;
+    if (finished) {
+      $('outcomeTitle').textContent = next.leader === 'tie'
+        ? `本局平局，两侧各运送 ${next.left.game.deliveries ?? 0} 人`
+        : `${next.leader === 'left' ? '左' : '右'}侧领先，多运送 ${next.delivery_margin} 人`;
+      $('outcomeDetail').textContent = `Seed ${next.config.seed} · 已推进 ${time(next.elapsed_ms)} · ${next.left.runtime.algorithm} 对比 ${next.right.runtime.algorithm}`;
+    }
     for (const side of ['left', 'right']) {
       const current = next[side];
       $(side + 'Name').textContent = `${side === 'left' ? '左' : '右'} · ${current.runtime.algorithm}`;
@@ -75,6 +95,7 @@
       });
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.error || '启动失败');
+      formDirty = false;
     } catch (error) { controlError = error.message; showError(controlError); }
     finally {
       pending = false;
@@ -91,6 +112,8 @@
     if (value.budget_ms % value.dt_ms) { showError('共同预算必须是每步时长的整数倍。'); return; }
     control('start', value);
   });
+  $('battleForm').addEventListener('input', () => { formDirty = true; });
+  $('battleForm').addEventListener('change', () => { formDirty = true; });
   $('restartBattle').addEventListener('click', () => control('restart'));
 
   async function loadCatalog() {
@@ -112,6 +135,7 @@
           || algorithms.find((item) => item.available)?.id || '';
       }
       catalogReady = true;
+      syncForm();
       $('startBattle').disabled = pending;
     } catch (error) {
       showError(`算法库读取失败，正在重试：${error.message}`);

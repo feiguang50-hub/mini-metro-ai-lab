@@ -7,6 +7,8 @@ window.createMetroRenderer = function(canvas) {
   const stationBirths = new Map();
   let stationSetInitialized = false;
   let focus = null;
+  let focusStarted = 0;
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
   function colorOf(value, fallback) {
     if (Array.isArray(value) && value.length >= 3) return `rgb(${value[0]},${value[1]},${value[2]})`;
     if (typeof value === 'string' && value) return value;
@@ -139,6 +141,7 @@ window.createMetroRenderer = function(canvas) {
   }
 
   function drawStationArrival(station, point) {
+    if (reducedMotion?.matches) return;
     const bornAt = stationBirths.get(station.id);
     if (!bornAt) return;
     const age = Date.now() - bornAt;
@@ -221,6 +224,7 @@ window.createMetroRenderer = function(canvas) {
     const byId = new Map(stations.map((station) => [station.id, station]));
     const waiters = waitingByStation(game);
     const threshold = Math.max(1, Number(current.runtime?.overdue_threshold) || 10);
+    const focusStrength = reducedMotion?.matches ? 1 : Math.min(1, (Date.now() - focusStarted) / 180);
     trackNewStations(stations);
 
     beginFrame();
@@ -243,7 +247,9 @@ window.createMetroRenderer = function(canvas) {
       ctx.save();
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       if (focus?.path_ids?.includes(path.id)) {
+        ctx.globalAlpha = focusStrength;
         trace(); ctx.strokeStyle = 'rgba(38,105,88,.22)'; ctx.lineWidth = Math.max(18, viewport.width / 65); ctx.stroke();
+        ctx.globalAlpha = 1;
       }
       trace(); ctx.strokeStyle = 'rgba(247,244,237,.96)'; ctx.lineWidth = Math.max(8.5, viewport.width / 115); ctx.stroke();
       trace(); ctx.strokeStyle = color; ctx.lineWidth = Math.max(5.2, viewport.width / 180); ctx.stroke();
@@ -255,8 +261,9 @@ window.createMetroRenderer = function(canvas) {
     for (const metro of metros) {
       const visual = trainVisuals.get(metro.id);
       if (!visual) continue;
-      visual.x += (visual.tx - visual.x) * .18;
-      visual.y += (visual.ty - visual.y) * .18;
+      const easing = reducedMotion?.matches ? 1 : .18;
+      visual.x += (visual.tx - visual.x) * easing;
+      visual.y += (visual.ty - visual.y) * easing;
       const color = colorOf(pathById.get(metro.path_id)?.color, '#34373a');
       const w = Math.max(15, viewport.width / 68);
       const h = Math.max(8, w * .56);
@@ -273,6 +280,7 @@ window.createMetroRenderer = function(canvas) {
       const waiting = Math.max(Number(station.passenger_count) || 0, shapes.length);
       if (focus?.station_ids?.includes(station.id)) {
         ctx.save();
+        ctx.globalAlpha = focusStrength;
         ctx.beginPath(); ctx.arc(point.x, point.y, 23, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(38,105,88,.13)'; ctx.fill();
         ctx.strokeStyle = '#266958'; ctx.lineWidth = 2; ctx.stroke();
@@ -285,5 +293,5 @@ window.createMetroRenderer = function(canvas) {
   }
 
 
-  return { draw(current) { resizeCanvas(); drawNetwork(current); }, resize: resizeCanvas, reset() { trainVisuals.clear(); knownStations.clear(); stationBirths.clear(); stationSetInitialized = false; focus = null; }, setCrowd(value) { crowdVisible = value; }, setFocus(value) { focus = value; } };
+  return { draw(current) { resizeCanvas(); drawNetwork(current); }, resize: resizeCanvas, reset() { trainVisuals.clear(); knownStations.clear(); stationBirths.clear(); stationSetInitialized = false; focus = null; }, setCrowd(value) { crowdVisible = value; }, setFocus(value) { focus = value; focusStarted = Date.now(); } };
 };
